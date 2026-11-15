@@ -41,6 +41,9 @@ client.once(Events.ClientReady, async (bot) => {
   try {
     await rest.put(
       Routes.applicationCommands(bot.user.id),
+      bot.user.id
+      "1560881176166535171"
+    ),
       { body: commands.map(command => command.toJSON()) }
     );
 
