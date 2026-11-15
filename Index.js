@@ -1,56 +1,97 @@
-
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  Events
+} = require("discord.js");
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+  intents: [GatewayIntentBits.Guilds]
 });
 
+// Comandos de ASTRIX-IA
 const commands = [
   new SlashCommandBuilder()
-    .setName("help")
-    .setDescription("Muestra los comandos de ASTRIX IA"),
+    .setName("ayuda")
+    .setDescription("Muestra los comandos de ASTRIX-IA"),
 
   new SlashCommandBuilder()
-    .setName("say")
-    .setDescription("Envía un mensaje como ASTRIX IA")
+    .setName("ping")
+    .setDescription("Comprueba si ASTRIX-IA está funcionando"),
+
+  new SlashCommandBuilder()
+    .setName("decir")
+    .setDescription("Envía un mensaje como el bot")
     .addStringOption(option =>
-      option.setName("mensaje")
+      option
+        .setName("mensaje")
         .setDescription("Mensaje que quieres enviar")
         .setRequired(true)
     )
 ];
 
-client.once("ready", () => {
-  console.log(`ASTRIX IA está conectado como ${client.user.tag}`);
+client.once(Events.ClientReady, async (bot) => {
+  console.log(`ASTRIX-IA conectado como ${bot.user.tag}`);
+
+  const rest = new REST({ version: "10" })
+    .setToken(process.env.DISCORD_TOKEN);
+
+  try {
+    await rest.put(
+      Routes.applicationCommands(bot.user.id),
+      { body: commands.map(command => command.toJSON()) }
+    );
+
+    console.log("Comandos registrados correctamente.");
+  } catch (error) {
+    console.error("Error registrando comandos:", error);
+  }
 });
 
-client.on("interactionCreate", async interaction => {
+// Respuestas a los comandos
+client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === "help") {
+  if (interaction.commandName === "ayuda") {
     await interaction.reply({
-      content: "🤖 **ASTRIX IA**\n\n/help — Ver comandos\n/say — Enviar un mensaje (solo propietario)",
+      content:
+        "🤖 **ASTRIX-IA — Sistema de ayuda**\n\n" +
+        " `/ayuda` — Ver los comandos.\n" +
+        " `/ping` — Comprobar el funcionamiento.\n" +
+        " `/decir` — Enviar un mensaje como el bot.",
       ephemeral: true
     });
   }
 
-  if (interaction.commandName === "say") {
-    const ownerId = process.env.OWNER_ID;
+  if (interaction.commandName === "ping") {
+    await interaction.reply("💙 ¡ASTRIX-IA está funcionando!");
+  }
 
-    if (!ownerId || interaction.user.id !== ownerId) {
+  if (interaction.commandName === "decir") {
+    if (interaction.user.id !== process.env.OWNER_ID) {
       return interaction.reply({
-        content: "⛔ Este comando es exclusivo del propietario.",
+        content: "⛔ No tienes permiso para usar este comando.",
         ephemeral: true
       });
     }
 
-    const mensaje = interaction.options.getString("mensaje", true);
-    await interaction.reply({ content: mensaje });
+    const mensaje = interaction.options.getString("mensaje");
+
+    await interaction.reply({
+      content: mensaje,
+      allowedMentions: { parse: [] }
+    });
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// Inicio del bot
+if (!process.env.DISCORD_TOKEN) {
+  console.error("Falta configurar DISCORD_TOKEN.");
+  process.exit(1);
+}
+
+client.login(process.env.DISCORD_TOKEN).catch(error => {
+  console.error("No se pudo iniciar ASTRIX-IA:", error);
+});
