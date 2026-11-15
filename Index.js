@@ -13,6 +13,13 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
+console.log(
+  "OPENAI_API_KEY cargada:",
+  Boolean(process.env.OPENAI_API_KEY),
+  "Longitud:",
+  process.env.OPENAI_API_KEY?.length
+);
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
@@ -119,11 +126,10 @@ client.on(Events.InteractionCreate, async interaction => {
         input: pregunta
       });
 
-      const respuesta =
-        response.output_text || "No pude generar una respuesta.";
-
       return interaction.editReply({
-        content: respuesta.slice(0, 1900),
+        content: (
+          response.output_text || "No pude generar una respuesta."
+        ).slice(0, 1900),
         allowedMentions: { parse: [] }
       });
 
@@ -136,7 +142,7 @@ client.on(Events.InteractionCreate, async interaction => {
       );
 
       return interaction.editReply(
-        "⚠️ No pude conectar con la inteligencia artificial. Revisa la consola para conocer el error."
+        "⚠️ No pude conectar con la inteligencia artificial."
       );
     }
   }
