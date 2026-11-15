@@ -67,7 +67,7 @@ client.once(Events.ClientReady, async bot => {
 
     console.log("Comandos registrados correctamente.");
   } catch (error) {
-    console.error("Error registrando comandos:", error);
+    console.error("Error registrando comandos:", error.message);
   }
 });
 
@@ -128,10 +128,15 @@ client.on(Events.InteractionCreate, async interaction => {
       });
 
     } catch (error) {
-      console.error("Error de IA:", error.message);
+      console.error(
+        "Error de IA:",
+        error.status,
+        error.code,
+        error.message
+      );
 
       return interaction.editReply(
-        "⚠️ No pude conectar con la inteligencia artificial. Inténtalo más tarde."
+        "⚠️ No pude conectar con la inteligencia artificial. Revisa la consola para conocer el error."
       );
     }
   }
@@ -148,5 +153,5 @@ if (!process.env.OPENAI_API_KEY) {
 }
 
 client.login(process.env.DISCORD_TOKEN).catch(error => {
-  console.error("No se pudo iniciar ASTRIX-IA:", error);
+  console.error("No se pudo iniciar ASTRIX-IA:", error.message);
 });
