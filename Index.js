@@ -7,11 +7,16 @@ const {
   Events
 } = require("discord.js");
 
+const OpenAI = require("openai");
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-// Comandos de ASTRIX-IA
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
 const commands = [
   new SlashCommandBuilder()
     .setName("ayuda")
@@ -29,10 +34,21 @@ const commands = [
         .setName("mensaje")
         .setDescription("Mensaje que quieres enviar")
         .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("ia")
+    .setDescription("Habla con la inteligencia artificial")
+    .addStringOption(option =>
+      option
+        .setName("pregunta")
+        .setDescription("Escribe tu pregunta")
+        .setRequired(true)
+        .setMaxLength(1000)
     )
 ];
 
-client.once(Events.ClientReady, async (bot) => {
+client.once(Events.ClientReady, async bot => {
   console.log(`ASTRIX-IA conectado como ${bot.user.tag}`);
 
   const rest = new REST({ version: "10" })
@@ -40,11 +56,13 @@ client.once(Events.ClientReady, async (bot) => {
 
   try {
     await rest.put(
-      Routes.applicationCommands(bot.user.id),
-      bot.user.id
-      "1560881176166535171"
-    ),
-      { body: commands.map(command => command.toJSON()) }
+      Routes.applicationGuildCommands(
+        bot.user.id,
+        "1560881176166535171"
+      ),
+      {
+        body: commands.map(command => command.toJSON())
+      }
     );
 
     console.log("Comandos registrados correctamente.");
@@ -53,23 +71,23 @@ client.once(Events.ClientReady, async (bot) => {
   }
 });
 
-// Respuestas a los comandos
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "ayuda") {
-    await interaction.reply({
+    return interaction.reply({
       content:
         "🤖 **ASTRIX-IA — Sistema de ayuda**\n\n" +
-        " `/ayuda` — Ver los comandos.\n" +
-        " `/ping` — Comprobar el funcionamiento.\n" +
-        " `/decir` — Enviar un mensaje como el bot.",
+        "/ayuda — Ver los comandos.\n" +
+        "/ping — Comprobar el funcionamiento.\n" +
+        "/decir — Enviar un mensaje como el bot.\n" +
+        "/ia — Hablar con la inteligencia artificial.",
       ephemeral: true
     });
   }
 
   if (interaction.commandName === "ping") {
-    await interaction.reply("💙 ¡ASTRIX-IA está funcionando!");
+    return interaction.reply("💙 ¡ASTRIX-IA está funcionando!");
   }
 
   if (interaction.commandName === "decir") {
@@ -82,16 +100,50 @@ client.on(Events.InteractionCreate, async interaction => {
 
     const mensaje = interaction.options.getString("mensaje");
 
-    await interaction.reply({
+    return interaction.reply({
       content: mensaje,
       allowedMentions: { parse: [] }
     });
   }
+
+  if (interaction.commandName === "ia") {
+    const pregunta = interaction.options.getString("pregunta");
+
+    await interaction.deferReply();
+
+    try {
+      const response = await openai.responses.create({
+        model: "gpt-4.1-mini",
+        instructions:
+          "Eres ASTRIX AI, un asistente útil, amable y claro. Responde en español.",
+        input: pregunta
+      });
+
+      const respuesta =
+        response.output_text || "No pude generar una respuesta.";
+
+      return interaction.editReply({
+        content: respuesta.slice(0, 1900),
+        allowedMentions: { parse: [] }
+      });
+
+    } catch (error) {
+      console.error("Error de IA:", error.message);
+
+      return interaction.editReply(
+        "⚠️ No pude conectar con la inteligencia artificial. Inténtalo más tarde."
+      );
+    }
+  }
 });
 
-// Inicio del bot
 if (!process.env.DISCORD_TOKEN) {
   console.error("Falta configurar DISCORD_TOKEN.");
+  process.exit(1);
+}
+
+if (!process.env.OPENAI_API_KEY) {
+  console.error("Falta configurar OPENAI_API_KEY.");
   process.exit(1);
 }
 
