@@ -1,13 +1,14 @@
+
 {
-  "name": "astrix-ia",
+  "name": "astrix-ai",
   "version": "1.0.0",
-  "description": "Bot de Discord ASTRIX IA",
+  "description": "ASTRIX AI - Discord Artificial Intelligence Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.19.3",
-    "openai": "^5.0.0"
+    "groq-sdk": "latest"
   }
 }
