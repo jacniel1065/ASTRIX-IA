@@ -5,7 +5,8 @@ const {
   REST,
   Routes,
   SlashCommandBuilder,
-  Events
+  Events,
+  EmbedBuilder
 } = require("discord.js");
 
 const OpenAI = require("openai");
@@ -18,7 +19,12 @@ const client = new Client({
   ]
 });
 
-if (!process.env.DISCORD_TOKEN || !process.env.OPENAI_API_KEY) {
+const PREFIX = "a!";
+const MODEL = "gpt-4.1-mini";
+const conversations = new Map();
+
+if (!process.env.DISCORD_TOKEN ||
+    !process.env.OPENAI_API_KEY) {
   console.error("Faltan variables privadas.");
   process.exit(1);
 }
@@ -27,71 +33,190 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const PREFIX = "a!";
-
 const commands = [
   new SlashCommandBuilder()
     .setName("ayuda")
-    .setDescription("Muestra los comandos de ASTRIX AI"),
+    .setDescription("Centro de ayuda de ASTRIX AI"),
 
   new SlashCommandBuilder()
     .setName("ping")
-    .setDescription("Comprueba si ASTRIX AI funciona"),
+    .setDescription("Comprueba la latencia"),
+
+  new SlashCommandBuilder()
+    .setName("ia")
+    .setDescription("Habla con ASTRIX AI")
+    .addStringOption(o =>
+      o.setName("pregunta")
+        .setDescription("Tu pregunta")
+        .setRequired(true)
+        .setMaxLength(1000)),
+
+  new SlashCommandBuilder()
+    .setName("explicar")
+    .setDescription("Explica cualquier tema")
+    .addStringOption(o =>
+      o.setName("tema")
+        .setDescription("Tema que quieres aprender")
+        .setRequired(true)
+        .setMaxLength(1000)),
+
+  new SlashCommandBuilder()
+    .setName("resumir")
+    .setDescription("Resume un texto")
+    .addStringOption(o =>
+      o.setName("texto")
+        .setDescription("Texto para resumir")
+        .setRequired(true)
+        .setMaxLength(1000)),
+
+  new SlashCommandBuilder()
+    .setName("ideas")
+    .setDescription("Genera ideas creativas")
+    .addStringOption(o =>
+      o.setName("tema")
+        .setDescription("Tema de las ideas")
+        .setRequired(true)
+        .setMaxLength(1000)),
+
+  new SlashCommandBuilder()
+    .setName("codigo")
+    .setDescription("Ayuda con programación")
+    .addStringOption(o =>
+      o.setName("problema")
+        .setDescription("Describe lo que necesitas")
+        .setRequired(true)
+        .setMaxLength(1000)),
+
+  new SlashCommandBuilder()
+    .setName("traducir")
+    .setDescription("Traduce textos")
+    .addStringOption(o =>
+      o.setName("texto")
+        .setDescription("Texto para traducir")
+        .setRequired(true)
+        .setMaxLength(1000))
+    .addStringOption(o =>
+      o.setName("idioma")
+        .setDescription("Idioma de destino")
+        .setRequired(true)
+        .setMaxLength(50)),
+
+  new SlashCommandBuilder()
+    .setName("memoria")
+    .setDescription("Consulta el estado de tu memoria"),
+
+  new SlashCommandBuilder()
+    .setName("olvidar")
+    .setDescription("Borra tu contexto de conversación"),
+
+  new SlashCommandBuilder()
+    .setName("estado")
+    .setDescription("Estado de ASTRIX AI"),
+
+  new SlashCommandBuilder()
+    .setName("servidor")
+    .setDescription("Información del servidor"),
+
+  new SlashCommandBuilder()
+    .setName("usuario")
+    .setDescription("Información de un usuario")
+    .addUserOption(o =>
+      o.setName("miembro")
+        .setDescription("Usuario que quieres consultar")
+        .setRequired(false)),
 
   new SlashCommandBuilder()
     .setName("decir")
     .setDescription("Envía un mensaje como el bot")
-    .addStringOption(option =>
-      option.setName("mensaje")
-        .setDescription("Mensaje que quieres enviar")
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("ia")
-    .setDescription("Habla con la inteligencia artificial")
-    .addStringOption(option =>
-      option.setName("pregunta")
-        .setDescription("Escribe tu pregunta")
-        .setRequired(true)
-        .setMaxLength(1000)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("servidor")
-    .setDescription("Muestra información del servidor"),
-
-  new SlashCommandBuilder()
-    .setName("usuario")
-    .setDescription("Muestra información de un usuario")
-    .addUserOption(option =>
-      option.setName("miembro")
-        .setDescription("Usuario que quieres consultar")
-        .setRequired(false)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("traducir")
-    .setDescription("Traduce un texto con IA")
-    .addStringOption(option =>
-      option.setName("texto")
-        .setDescription("Texto que quieres traducir")
-        .setRequired(true)
-        .setMaxLength(1000)
-    )
+    .addStringOption(o =>
+      o.setName("mensaje")
+        .setDescription("Mensaje")
+        .setRequired(true))
 ];
 
-async function askAI(question) {
+function memoryKey(guildId, userId) {
+  return `${guildId}:${userId}`;
+}
+
+async function askAI(question, guildId, userId) {
+  const key = memoryKey(guildId, userId);
+  const history = conversations.get(key) || [];
+
   const response = await openai.responses.create({
-    model: "gpt-4.1-mini",
+    model: MODEL,
     instructions:
-      "Eres ASTRIX AI, un asistente útil, amable y claro. Responde en español.",
-    input: question
+      "Eres ASTRIX AI, un asistente inteligente, amable y profesional. " +
+      "Responde en español, explica claramente y adapta tus respuestas " +
+      "al contexto de la conversación. No inventes información.",
+    input: [
+      ...history,
+      { role: "user", content: question }
+    ]
   });
 
-  return (
+  const answer = (
     response.output_text || "No pude generar una respuesta."
   ).slice(0, 1900);
+
+  const updated = [
+    ...history,
+    { role: "user", content: question },
+    { role: "assistant", content: answer }
+  ].slice(-10);
+
+  conversations.set(key, updated);
+
+  return answer;
+}
+
+function helpEmbed() {
+  return new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setAuthor({
+      name: "ASTRIX AI • Sistema inteligente"
+    })
+    .setTitle("✨ Centro de ayuda")
+    .setDescription(
+      "Bienvenido a ASTRIX AI.\n" +
+      "Tu asistente inteligente para aprender, crear y resolver dudas.\n\n" +
+      "**Prefijo de conversación:** `a!`"
+    )
+    .addFields(
+      {
+        name: "🧠 Inteligencia artificial",
+        value:
+          "`a! pregunta` — Conversar con IA.\n" +
+          "`/ia` — Hacer preguntas.\n" +
+          "`/explicar` — Aprender temas."
+      },
+      {
+        name: "✨ Herramientas creativas",
+        value:
+          "`/ideas` — Generar ideas.\n" +
+          "`/resumir` — Resumir textos.\n" +
+          "`/traducir` — Traducir idiomas.\n" +
+          "`/codigo` — Ayuda con programación."
+      },
+      {
+        name: "💾 Memoria",
+        value:
+          "`/memoria` — Consultar tu contexto.\n" +
+          "`/olvidar` — Borrar tu contexto."
+      },
+      {
+        name: "⚙️ Sistema",
+        value:
+          "`/ping` — Latencia.\n" +
+          "`/estado` — Estado del bot.\n" +
+          "`/servidor` — Información del servidor.\n" +
+          "`/usuario` — Información de usuarios.\n" +
+          "`/decir` — Enviar mensajes."
+      }
+    )
+    .setFooter({
+      text: "ASTRIX AI • Tu asistente inteligente"
+    })
+    .setTimestamp();
 }
 
 client.once(Events.ClientReady, async bot => {
@@ -104,7 +229,7 @@ client.once(Events.ClientReady, async bot => {
     await rest.put(
       Routes.applicationCommands(bot.user.id),
       {
-        body: commands.map(command => command.toJSON())
+        body: commands.map(c => c.toJSON())
       }
     );
 
@@ -114,10 +239,9 @@ client.once(Events.ClientReady, async bot => {
   }
 });
 
-// PREFIJO a!
+// PREFIJO DE IA: a!
 client.on(Events.MessageCreate, async message => {
   if (message.author.bot || !message.guild) return;
-
   if (!message.content.toLowerCase().startsWith(PREFIX)) return;
 
   const question = message.content.slice(PREFIX.length).trim();
@@ -129,15 +253,21 @@ client.on(Events.MessageCreate, async message => {
   try {
     await message.channel.sendTyping();
 
-    const answer = await askAI(question);
+    const answer = await askAI(
+      question,
+      message.guild.id,
+      message.author.id
+    );
 
     await message.reply({
       content: answer,
       allowedMentions: { parse: [] }
     });
   } catch (error) {
-    console.error("Error en prefijo IA:", error.message);
-    await message.reply("⚠️ No pude conectar con la inteligencia artificial.");
+    console.error("Error de IA:", error.message);
+    await message.reply(
+      "⚠️ No pude conectar con la inteligencia artificial."
+    );
   }
 });
 
@@ -145,51 +275,59 @@ client.on(Events.MessageCreate, async message => {
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  const guildId = interaction.guildId || "DM";
+  const userId = interaction.user.id;
+
   try {
     if (interaction.commandName === "ayuda") {
       return interaction.reply({
-        content:
-          "🤖 **ASTRIX AI — Ayuda**\n\n" +
-          "`a! pregunta` — Hablar con la IA.\n" +
-          "`/ayuda` — Ver comandos.\n" +
-          "`/ping` — Comprobar funcionamiento.\n" +
-          "`/decir` — Enviar mensajes.\n" +
-          "`/ia` — Hablar con la IA.\n" +
-          "`/servidor` — Información del servidor.\n" +
-          "`/usuario` — Información de usuarios.\n" +
-          "`/traducir` — Traducir textos.",
+        embeds: [helpEmbed()],
         ephemeral: true
       });
     }
 
     if (interaction.commandName === "ping") {
       return interaction.reply(
-        `💙 ASTRIX AI está funcionando. Latencia: ${client.ws.ping} ms`
+        `💙 ASTRIX AI está activo. Latencia: ${client.ws.ping} ms`
       );
     }
 
-    if (interaction.commandName === "decir") {
-      if (interaction.user.id !== process.env.OWNER_ID) {
-        return interaction.reply({
-          content: "⛔ No tienes permiso para usar este comando.",
-          ephemeral: true
-        });
-      }
-
-      const mensaje = interaction.options.getString("mensaje");
-
+    if (interaction.commandName === "estado") {
+      const uptime = Math.floor(client.uptime / 1000);
       return interaction.reply({
-        content: mensaje,
-        allowedMentions: { parse: [] }
+        embeds: [
+          new EmbedBuilder()
+            .setColor(0x57F287)
+            .setTitle("🟢 ASTRIX AI está activo")
+            .setDescription("Todos los sistemas principales están iniciados.")
+            .addFields(
+              { name: "Latencia", value: `${client.ws.ping} ms`, inline: true },
+              { name: "Tiempo activo", value: `${uptime} segundos`, inline: true },
+              { name: "IA", value: "Configurada", inline: true }
+            )
+        ],
+        ephemeral: true
       });
     }
 
     if (interaction.commandName === "servidor") {
+      if (!interaction.guild) {
+        return interaction.reply({
+          content: "Este comando necesita un servidor.",
+          ephemeral: true
+        });
+      }
+
       return interaction.reply({
-        content:
-          `🏠 **${interaction.guild.name}**\n` +
-          `👥 Miembros: ${interaction.guild.memberCount}\n` +
-          `🆔 ID: ${interaction.guild.id}`,
+        embeds: [
+          new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle(`🏠 ${interaction.guild.name}`)
+            .addFields(
+              { name: "Miembros", value: `${interaction.guild.memberCount}`, inline: true },
+              { name: "ID", value: interaction.guild.id, inline: true }
+            )
+        ],
         ephemeral: true
       });
     }
@@ -199,36 +337,115 @@ client.on(Events.InteractionCreate, async interaction => {
         interaction.options.getUser("miembro") || interaction.user;
 
       return interaction.reply({
-        content:
-          `👤 Usuario: ${user.username}\n` +
-          `🆔 ID: ${user.id}\n` +
-          `🤖 Bot: ${user.bot ? "Sí" : "No"}`,
+        embeds: [
+          new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle("👤 Información del usuario")
+            .setThumbnail(user.displayAvatarURL())
+            .addFields(
+              { name: "Nombre", value: user.username, inline: true },
+              { name: "ID", value: user.id, inline: true },
+              { name: "Bot", value: user.bot ? "Sí" : "No", inline: true }
+            )
+        ],
         ephemeral: true
       });
     }
 
-    if (
-      interaction.commandName === "ia" ||
-      interaction.commandName === "traducir"
-    ) {
-      const text = interaction.commandName === "ia"
-        ? interaction.options.getString("pregunta")
-        : `Traduce este texto al español. Si ya está en español, tradúcelo al inglés:\n${interaction.options.getString("texto")}`;
+    if (interaction.commandName === "decir") {
+      if (!process.env.OWNER_ID ||
+          userId !== process.env.OWNER_ID) {
+        return interaction.reply({
+          content: "⛔ No tienes permiso para usar este comando.",
+          ephemeral: true
+        });
+      }
 
-      await interaction.deferReply();
-
-      const answer = await askAI(text);
-
-      return interaction.editReply({
-        content: answer,
+      return interaction.reply({
+        content: interaction.options.getString("mensaje"),
         allowedMentions: { parse: [] }
       });
     }
 
+    const key = memoryKey(guildId, userId);
+
+    if (interaction.commandName === "memoria") {
+      const count = (conversations.get(key) || []).length;
+
+      return interaction.reply({
+        content:
+          `💾 **Tu memoria de conversación**\n` +
+          `Mensajes de contexto: ${count}\n` +
+          `La memoria es temporal y se reinicia cuando el bot se reinicia.`,
+        ephemeral: true
+      });
+    }
+
+    if (interaction.commandName === "olvidar") {
+      conversations.delete(key);
+
+      return interaction.reply({
+        content: "🧹 Tu contexto de conversación ha sido borrado.",
+        ephemeral: true
+      });
+    }
+
+    let question = "";
+
+    switch (interaction.commandName) {
+      case "ia":
+        question = interaction.options.getString("pregunta");
+        break;
+
+      case "explicar":
+        question =
+          "Explícame de forma sencilla y completa este tema: " +
+          interaction.options.getString("tema");
+        break;
+
+      case "resumir":
+        question =
+          "Haz un resumen claro y ordenado de este texto: " +
+          interaction.options.getString("texto");
+        break;
+
+      case "ideas":
+        question =
+          "Dame ideas creativas y originales sobre: " +
+          interaction.options.getString("tema");
+        break;
+
+      case "codigo":
+        question =
+          "Ayúdame con programación. Explica y muestra ejemplos para: " +
+          interaction.options.getString("problema");
+        break;
+
+      case "traducir":
+        question =
+          "Traduce el siguiente texto al idioma " +
+          interaction.options.getString("idioma") +
+          ": " + interaction.options.getString("texto");
+        break;
+
+      default:
+        return;
+    }
+
+    await interaction.deferReply();
+
+    const answer = await askAI(question, guildId, userId);
+
+    return interaction.editReply({
+      content: answer,
+      allowedMentions: { parse: [] }
+    });
+
   } catch (error) {
     console.error("Error en comando:", error);
 
-    const response = "⚠️ Ocurrió un error al ejecutar el comando.";
+    const response =
+      "⚠️ Ocurrió un error al ejecutar ASTRIX AI.";
 
     if (interaction.deferred || interaction.replied) {
       return interaction.editReply(response);
@@ -244,4 +461,3 @@ client.on(Events.InteractionCreate, async interaction => {
 client.login(process.env.DISCORD_TOKEN).catch(error => {
   console.error("Error iniciando ASTRIX AI:", error);
 });
-
