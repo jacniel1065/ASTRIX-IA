@@ -19,12 +19,20 @@ const groq = new Groq({
 });
 
 const MODEL = "openai/gpt-oss-120b";
+
 const conversations = new Map();
+
+const stats = {
+  total: 0,
+  ia: 0,
+  imagenes: 0,
+  startedAt: Date.now()
+};
 
 const commands = [
   new SlashCommandBuilder()
     .setName("ayuda")
-    .setDescription("Muestra los comandos de ASTRIX AI"),
+    .setDescription("Muestra todos los comandos"),
 
   new SlashCommandBuilder()
     .setName("ping")
@@ -39,7 +47,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("explicar")
-    .setDescription("Explica cualquier tema")
+    .setDescription("Explica un tema")
     .addStringOption(o =>
       o.setName("tema").setDescription("Tema").setRequired(true)
     ),
@@ -77,7 +85,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("memoria")
-    .setDescription("Información sobre la memoria"),
+    .setDescription("Información de la memoria"),
 
   new SlashCommandBuilder()
     .setName("olvidar")
@@ -85,7 +93,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("estado")
-    .setDescription("Estado de ASTRIX AI"),
+    .setDescription("Panel de estadísticas de ASTRIX AI"),
 
   new SlashCommandBuilder()
     .setName("servidor")
@@ -110,7 +118,7 @@ const commands = [
     .setDescription("Genera imágenes con IA")
     .addStringOption(o =>
       o.setName("descripcion")
-        .setDescription("Describe la imagen que deseas")
+        .setDescription("Describe la imagen")
         .setRequired(true)
     )
 ].map(c => c.toJSON());
@@ -161,6 +169,7 @@ client.once("ready", async () => {
       Routes.applicationCommands(client.user.id),
       { body: commands }
     );
+
     console.log("Comandos registrados correctamente.");
   } catch (error) {
     console.error("Error registrando comandos:", error);
@@ -174,23 +183,41 @@ client.on("interactionCreate", async interaction => {
 
   try {
     if (name === "ping") {
-      return interaction.reply(`🏓 Pong: ${client.ws.ping} ms`);
+      stats.total++;
+
+      return interaction.reply(
+        `🏓 Pong! ${client.ws.ping} ms`
+      );
     }
 
     if (name === "ayuda") {
+      stats.total++;
+
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle("✦ ASTRIX AI")
-        .setDescription("Tu asistente inteligente.")
+        .setDescription("Tu asistente inteligente de Discord.")
         .addFields(
           {
             name: "🤖 Inteligencia artificial",
             value: "`/ia` `/explicar` `/resumir` `/ideas` `/codigo` `/traducir`"
           },
-          { name: "🖼️ Imágenes", value: "`/imagen`" },
-          { name: "⚙️ Utilidades", value: "`/ping` `/estado` `/servidor` `/usuario`" },
-          { name: "🧠 Memoria", value: "`/memoria` `/olvidar`" },
-          { name: "👑 Otros", value: "`/decir`" }
+          {
+            name: "🖼️ Imágenes",
+            value: "`/imagen`"
+          },
+          {
+            name: "⚙️ Utilidades",
+            value: "`/ping` `/estado` `/servidor` `/usuario`"
+          },
+          {
+            name: "🧠 Memoria",
+            value: "`/memoria` `/olvidar`"
+          },
+          {
+            name: "👑 Administración",
+            value: "`/decir`"
+          }
         )
         .setFooter({ text: "ASTRIX AI • Inteligencia artificial" });
 
@@ -198,13 +225,89 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "estado") {
-      return interaction.reply({
-        content: `🟢 ASTRIX AI está activo. Latencia: ${client.ws.ping} ms`,
-        ephemeral: true
-      });
+      stats.total++;
+
+      const uptime = Math.floor(
+        (Date.now() - stats.startedAt) / 1000
+      );
+
+      const dias = Math.floor(uptime / 86400);
+      const horas = Math.floor((uptime % 86400) / 3600);
+      const minutos = Math.floor((uptime % 3600) / 60);
+      const segundos = uptime % 60;
+
+      const tiempo =
+        `${dias}d ${horas}h ${minutos}m ${segundos}s`;
+
+      const usuarios = client.guilds.cache.reduce(
+        (total, guild) => total + (guild.memberCount || 0),
+        0
+      );
+
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setAuthor({
+          name: "ASTRIX AI • SYSTEM MONITOR",
+          iconURL: client.user.displayAvatarURL()
+        })
+        .setTitle("✦ Centro de estadísticas")
+        .setDescription(
+          "Todos los sistemas están funcionando.\n" +
+          "Estadísticas actuales del asistente."
+        )
+        .addFields(
+          {
+            name: "🟢 Estado",
+            value: "```ONLINE```",
+            inline: true
+          },
+          {
+            name: "📡 Latencia",
+            value: `\`${client.ws.ping} ms\``,
+            inline: true
+          },
+          {
+            name: "⏱️ Tiempo activo",
+            value: `\`${tiempo}\``,
+            inline: true
+          },
+          {
+            name: "📊 Comandos utilizados",
+            value: `\`${stats.total}\``,
+            inline: true
+          },
+          {
+            name: "🤖 Consultas IA",
+            value: `\`${stats.ia}\``,
+            inline: true
+          },
+          {
+            name: "🖼️ Imágenes solicitadas",
+            value: `\`${stats.imagenes}\``,
+            inline: true
+          },
+          {
+            name: "🌐 Servidores",
+            value: `\`${client.guilds.cache.size}\``,
+            inline: true
+          },
+          {
+            name: "👥 Usuarios",
+            value: `\`${usuarios}\``,
+            inline: true
+          }
+        )
+        .setFooter({
+          text: "ASTRIX AI • Advanced Monitoring System"
+        })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
     }
 
     if (name === "servidor") {
+      stats.total++;
+
       if (!interaction.guild) {
         return interaction.reply({
           content: "Este comando solo funciona en servidores.",
@@ -224,6 +327,8 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "usuario") {
+      stats.total++;
+
       const user =
         interaction.options.getUser("persona") || interaction.user;
 
@@ -240,6 +345,8 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "olvidar") {
+      stats.total++;
+
       conversations.delete(
         `${interaction.guildId || "dm"}-${interaction.user.id}`
       );
@@ -251,19 +358,23 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "memoria") {
+      stats.total++;
+
       return interaction.reply({
-        content: "🧠 ASTRIX AI conserva hasta 10 mensajes de tu conversación mientras permanece encendido.",
+        content: "🧠 ASTRIX AI conserva hasta 10 mensajes de conversación mientras permanece encendido.",
         ephemeral: true
       });
     }
 
     if (name === "decir") {
+      stats.total++;
+
       if (
         !process.env.OWNER_ID ||
         interaction.user.id !== process.env.OWNER_ID
       ) {
         return interaction.reply({
-          content: "⛔ No tienes permiso para usar este comando.",
+          content: "⛔ No tienes permiso.",
           ephemeral: true
         });
       }
@@ -279,13 +390,16 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "imagen") {
+      stats.total++;
+      stats.imagenes++;
+
       await interaction.deferReply();
 
       const prompt = interaction.options.getString("descripcion");
 
       if (!process.env.POLLINATIONS_API_KEY) {
         return interaction.editReply(
-          "❌ Falta configurar POLLINATIONS_API_KEY en Lunafy."
+          "❌ Falta configurar POLLINATIONS_API_KEY."
         );
       }
 
@@ -296,22 +410,23 @@ client.on("interactionCreate", async interaction => {
 
       const response = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${process.env.POLLINATIONS_API_KEY}`
+          Authorization:
+            `Bearer ${process.env.POLLINATIONS_API_KEY}`
         },
         signal: AbortSignal.timeout(120000)
       });
 
       if (!response.ok) {
-        throw new Error(`Pollinations respondió con código ${response.status}`);
+        throw new Error(
+          `Pollinations respondió con código ${response.status}`
+        );
       }
 
-      const imageBuffer = Buffer.from(await response.arrayBuffer());
+      const buffer = Buffer.from(
+        await response.arrayBuffer()
+      );
 
-      if (!imageBuffer.length) {
-        throw new Error("La imagen recibida está vacía.");
-      }
-
-      const image = new AttachmentBuilder(imageBuffer, {
+      const image = new AttachmentBuilder(buffer, {
         name: "astrix-imagen.png"
       });
 
@@ -328,26 +443,43 @@ client.on("interactionCreate", async interaction => {
       });
     }
 
-    const options = {
-      ia: ["mensaje", null],
-      explicar: ["tema", "Explica de forma sencilla: "],
-      resumir: ["texto", "Resume este texto: "],
-      ideas: ["tema", "Dame ideas sobre: "],
-      codigo: ["problema", "Ayúdame con este problema de programación: "],
-      traducir: ["texto", "Traduce al idioma "]
-    };
+    const aiCommands = [
+      "ia",
+      "explicar",
+      "resumir",
+      "ideas",
+      "codigo",
+      "traducir"
+    ];
 
-    if (options[name]) {
-      const [field, prefix] = options[name];
-      const value = interaction.options.getString(field);
+    if (aiCommands.includes(name)) {
+      stats.total++;
+      stats.ia++;
 
       let prompt;
 
-      if (name === "traducir") {
-        const idioma = interaction.options.getString("idioma");
-        prompt = `Traduce al idioma ${idioma}: ${value}`;
-      } else {
-        prompt = prefix ? prefix + value : value;
+      if (name === "ia") {
+        prompt = interaction.options.getString("mensaje");
+      } else if (name === "explicar") {
+        prompt =
+          "Explica de forma sencilla: " +
+          interaction.options.getString("tema");
+      } else if (name === "resumir") {
+        prompt =
+          "Resume este texto: " +
+          interaction.options.getString("texto");
+      } else if (name === "ideas") {
+        prompt =
+          "Dame ideas sobre: " +
+          interaction.options.getString("tema");
+      } else if (name === "codigo") {
+        prompt =
+          "Ayúdame con programación: " +
+          interaction.options.getString("problema");
+      } else if (name === "traducir") {
+        prompt =
+          `Traduce al idioma ${interaction.options.getString("idioma")}: ` +
+          interaction.options.getString("texto");
       }
 
       await interaction.deferReply();
@@ -364,7 +496,8 @@ client.on("interactionCreate", async interaction => {
   } catch (error) {
     console.error("Error en comando:", error);
 
-    const message = "❌ Ocurrió un error. Inténtalo de nuevo más tarde.";
+    const message =
+      "❌ Ocurrió un error. Inténtalo nuevamente.";
 
     if (interaction.deferred || interaction.replied) {
       return interaction.editReply(message).catch(() => {});
