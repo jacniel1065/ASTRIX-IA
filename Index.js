@@ -105,6 +105,179 @@ function createTimeoutEmbed() {
 }
 
 // ==========================================
+// SISTEMA DE SEGURIDAD
+// ==========================================
+
+// ADER-AI analiza el mensaje antes de responder.
+// Distingue insultos dirigidos al bot de palabras
+// citadas, ejemplos educativos o expresiones casuales.
+
+async function checkConversationSafety(prompt) {
+  try {
+    const result = await groq.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Eres el sistema de moderación de ADER-AI. " +
+            "Analiza el mensaje del usuario y clasifícalo. " +
+            "Devuelve exclusivamente un JSON válido con esta estructura: " +
+            '{"type":"none"} o {"type":"insult"} o {"type":"dangerous"}. ' +
+            "insult: únicamente cuando el usuario insulta directamente " +
+            "a ADER-AI o utiliza insultos claramente dirigidos contra él. " +
+            "No marques palabras malsonantes citadas, ejemplos educativos, " +
+            "bromas no dirigidas al bot ni conversaciones normales. " +
+            "dangerous: cuando solicita instrucciones o ayuda para causar " +
+            "daño, cometer delitos, fabricar armas, realizar ataques " +
+            "o perjudicar a alguien. " +
+            "No marques preguntas educativas, preventivas o informativas " +
+            "que no soliciten facilitar esas acciones. " +
+            "Si no hay una infracción clara, devuelve none."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0,
+      max_completion_tokens: 120
+    });
+
+    const raw =
+      result.choices[0]?.message?.content?.trim() || "";
+
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+
+    if (!jsonMatch) {
+      return "none";
+    }
+
+    const classification = JSON.parse(jsonMatch[0]);
+
+    if (
+      ["none", "insult", "dangerous"].includes(classification.type)
+    ) {
+      return classification.type;
+    }
+
+    return "none";
+
+  } catch (error) {
+    console.error("Error en el detector de seguridad:", error);
+
+    // Si falla el detector, la conversación continúa normalmente.
+    return "none";
+  }
+}
+
+// ==========================================
+// MENSAJES DE ADVERTENCIA
+// ==========================================
+
+function createSafetyEmbed(type, insultCount = 0) {
+  if (type === "insult") {
+    const description = insultCount >= 2
+      ? "🚨 Has recibido otra advertencia por utilizar insultos contra ADER-AI.\n\n" +
+        "Por favor, mantén el respeto durante nuestras conversaciones.\n\n" +
+        "**Debes contactar a un miembro del Staff de ADER WORLD para recibir asistencia si deseas continuar con este comportamiento.**"
+      : "⚠️ Hemos detectado un insulto dirigido a ADER-AI.\n\n" +
+        "Te pedimos mantener un lenguaje respetuoso durante la conversación.\n\n" +
+        "**Si continúas con los insultos, tendrás que contactar a un miembro del Staff de ADER WORLD.**";
+
+    return new EmbedBuilder()
+      .setColor(0xE67E22)
+      .setTitle("🛡️ ADER-AI | Advertencia de conducta")
+      .setDescription(description)
+      .setFooter({
+        text: `${COMMUNITY_NAME} • Sistema de seguridad`
+      })
+      .setTimestamp();
+  }
+
+  return new EmbedBuilder()
+    .setColor(0xE74C3C)
+    .setTitle("🚨 ADER-AI | Sistema de seguridad")
+    .setDescription(
+      "He identificado que tu solicitud podría facilitar una acción peligrosa.\n\n" +
+      "No puedo ayudar con instrucciones para perjudicar a otras personas o realizar acciones dañinas.\n\n" +
+      "Podemos continuar hablando de otro tema o buscar una alternativa segura."
+    )
+    .setFooter({
+      text: `${COMMUNITY_NAME} • Sistema de seguridad`
+    })
+    .setTimestamp();
+}
+
+// ==========================================
+// GUARDAR CONTEXTO
+// ==========================================
+
+function saveConversationExchange(key, prompt, answer) {
+  if (!histories.has(key)) {
+    histories.set(key, []);
+  }
+
+  const history = histories.get(key);
+
+  history.push({
+    role: "user",
+    content: prompt
+  });
+
+  history.push({
+    role: "assistant",
+    content: answer
+  });
+
+  if (history.length > MAX_HISTORY) {
+    history.splice(0, history.length - MAX_HISTORY);
+  }
+}
+
+// ==========================================
+// PROCESAR MENSAJES CON SEGURIDAD
+// ==========================================
+
+async function processConversationPrompt(key, prompt, session) {
+  const safetyType = await checkConversationSafety(prompt);
+
+  if (safetyType === "insult") {
+    session.insultCount = (session.insultCount || 0) + 1;
+
+    const warning = session.insultCount >= 2
+      ? "Se ha enviado una segunda advertencia por insultos. Se recomienda contactar al Staff."
+      : "Se ha enviado una advertencia por insultos.";
+
+    saveConversationExchange(key, prompt, warning);
+
+    return {
+      type: "insult",
+      insultCount: session.insultCount
+    };
+  }
+
+  if (safetyType === "dangerous") {
+    const warning =
+      "ADER-AI rechazó la solicitud por motivos de seguridad.";
+
+    saveConversationExchange(key, prompt, warning);
+
+    return {
+      type: "dangerous",
+      insultCount: session.insultCount || 0
+    };
+  }
+
+  const answer = await askAI(key, prompt);
+
+  return {
+    type: "none",
+    answer
+  };
+}
+
+// ==========================================
 // SISTEMA DE CONVERSACIONES
 // ==========================================
 
@@ -153,7 +326,8 @@ function startSession(interaction) {
     channel: interaction.channel,
     lastActivity: Date.now(),
     timer: null,
-    queue: Promise.resolve()
+    queue: Promise.resolve(),
+    insultCount: 0
   };
 
   sessions.set(key, session);
@@ -201,7 +375,8 @@ async function askAI(key, prompt) {
             `Eres ${BOT_NAME}, el asistente oficial de ${COMMUNITY_NAME}. ` +
             "Responde en español cuando el usuario escriba en español. " +
             "Sé claro, amable, útil y respetuoso. " +
-            "Mantén el contexto de la conversación."
+            "Mantén el contexto de la conversación. " +
+            "No proporciones instrucciones para perjudicar a otras personas."
         },
         ...history
       ],
@@ -264,14 +439,40 @@ async function answerSessionMessage(message, key, session) {
   try {
     console.log(`🧠 Procesando mensaje de ${message.author.username}`);
 
-    const answer = await askAI(key, message.content.trim());
+    const result = await processConversationPrompt(
+      key,
+      message.content.trim(),
+      session
+    );
 
     if (sessions.get(key) !== session) return;
+
+    if (result.type === "insult") {
+      await message.channel.send({
+        embeds: [
+          createSafetyEmbed("insult", result.insultCount)
+        ]
+      });
+
+      console.log("🛡️ Advertencia por insulto enviada.");
+      return;
+    }
+
+    if (result.type === "dangerous") {
+      await message.channel.send({
+        embeds: [
+          createSafetyEmbed("dangerous")
+        ]
+      });
+
+      console.log("🚨 Solicitud peligrosa detectada.");
+      return;
+    }
 
     stats.ia++;
 
     await message.channel.send({
-      embeds: [createAIEmbed(answer)]
+      embeds: [createAIEmbed(result.answer)]
     });
 
     console.log("✅ ADER-AI respondió correctamente.");
@@ -413,6 +614,7 @@ client.once("ready", async () => {
   console.log(`🤖 ${BOT_NAME} está conectado.`);
   console.log(`Conectado como ${client.user.tag}`);
   console.log("📩 Sistema de conversaciones preparado.");
+  console.log("🛡️ Sistema de seguridad preparado.");
 
   try {
     const rest = new REST({ version: "10" })
@@ -606,19 +808,39 @@ client.on("interactionCreate", async interaction => {
 
     // IA
     if (name === "ia") {
-      const { key } = startSession(interaction);
+      const { key, session } = startSession(interaction);
       const prompt = interaction.options.getString("pregunta");
 
       if (prompt) {
         await interaction.deferReply();
 
         try {
-          const answer = await askAI(key, prompt);
+          const result = await processConversationPrompt(
+            key,
+            prompt,
+            session
+          );
+
+          if (sessions.get(key) !== session) return;
+
+          if (result.type === "insult") {
+            return interaction.editReply({
+              embeds: [
+                createSafetyEmbed("insult", result.insultCount)
+              ]
+            });
+          }
+
+          if (result.type === "dangerous") {
+            return interaction.editReply({
+              embeds: [createSafetyEmbed("dangerous")]
+            });
+          }
 
           stats.ia++;
 
           return interaction.editReply({
-            embeds: [createAIEmbed(answer)]
+            embeds: [createAIEmbed(result.answer)]
           });
 
         } catch (error) {
