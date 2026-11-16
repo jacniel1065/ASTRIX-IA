@@ -1,8 +1,6 @@
-
 {
   "name": "astrix-ai",
   "version": "1.0.0",
-  "description": "ASTRIX AI - Discord Artificial Intelligence Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
