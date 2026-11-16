@@ -11,7 +11,7 @@ const {
 const Groq = require("groq-sdk");
 
 // ==========================================
-// ADER-AI | CONFIGURACIÓN PRINCIPAL
+// ADER-AI | CONFIGURACIÓN
 // ==========================================
 
 const BOT_NAME = "ADER-AI";
@@ -31,7 +31,7 @@ if (!process.env.GROQ_API_KEY) {
 }
 
 // ==========================================
-// CONEXIÓN DISCORD
+// CLIENTE DISCORD
 // ==========================================
 
 const client = new Client({
@@ -105,14 +105,13 @@ function createTimeoutEmbed() {
 }
 
 // ==========================================
-// SISTEMA DE SESIONES
+// SISTEMA DE CONVERSACIONES
 // ==========================================
 
 async function expireSession(key, session) {
   if (sessions.get(key) !== session) return;
 
   clearTimeout(session.timer);
-
   sessions.delete(key);
   histories.delete(key);
 
@@ -139,7 +138,6 @@ function touchSession(key, session) {
 
 function startSession(interaction) {
   const key = getHistoryKey(interaction);
-
   const previous = sessions.get(key);
 
   if (previous) {
@@ -161,7 +159,7 @@ function startSession(interaction) {
   sessions.set(key, session);
   touchSession(key, session);
 
-  console.log(`🟢 Nueva sesión: ${key}`);
+  console.log(`🟢 Nueva conversación: ${key}`);
 
   return { key, session };
 }
@@ -175,8 +173,6 @@ function closeSession(key) {
   }
 
   histories.delete(key);
-
-  console.log(`🧹 Sesión eliminada: ${key}`);
 }
 
 // ==========================================
@@ -202,10 +198,10 @@ async function askAI(key, prompt) {
         {
           role: "system",
           content:
-            `Eres ${BOT_NAME}, el asistente oficial de ` +
-            `${COMMUNITY_NAME}. Responde en español cuando ` +
-            "el usuario escriba en español. Sé claro, útil, " +
-            "amable y respetuoso. Mantén el contexto."
+            `Eres ${BOT_NAME}, el asistente oficial de ${COMMUNITY_NAME}. ` +
+            "Responde en español cuando el usuario escriba en español. " +
+            "Sé claro, amable, útil y respetuoso. " +
+            "Mantén el contexto de la conversación."
         },
         ...history
       ],
@@ -235,7 +231,7 @@ async function askAI(key, prompt) {
 }
 
 // ==========================================
-// RESPUESTAS DE COMANDOS
+// RESPUESTAS DE COMANDOS DE IA
 // ==========================================
 
 async function replyAI(interaction, prompt) {
@@ -261,19 +257,16 @@ async function replyAI(interaction, prompt) {
 }
 
 // ==========================================
-// RESPUESTAS A MENSAJES NORMALES
+// MENSAJES NORMALES DE CONVERSACIÓN
 // ==========================================
 
 async function answerSessionMessage(message, key, session) {
   try {
-    console.log(`🧠 ADER-AI procesando: ${message.content}`);
+    console.log(`🧠 Procesando mensaje de ${message.author.username}`);
 
     const answer = await askAI(key, message.content.trim());
 
-    if (sessions.get(key) !== session) {
-      console.log("La sesión ya no está activa.");
-      return;
-    }
+    if (sessions.get(key) !== session) return;
 
     stats.ia++;
 
@@ -377,7 +370,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("olvidar")
-    .setDescription("Borra tu contexto y cierra tu conversación"),
+    .setDescription("Borra tu contexto de conversación"),
 
   new SlashCommandBuilder()
     .setName("imagen")
@@ -413,13 +406,13 @@ const commands = [
 ].map(command => command.toJSON());
 
 // ==========================================
-// INICIO DEL BOT
+// INICIO
 // ==========================================
 
 client.once("ready", async () => {
   console.log(`🤖 ${BOT_NAME} está conectado.`);
   console.log(`Conectado como ${client.user.tag}`);
-  console.log("📩 Sistema de mensajes normales preparado.");
+  console.log("📩 Sistema de conversaciones preparado.");
 
   try {
     const rest = new REST({ version: "10" })
@@ -430,65 +423,50 @@ client.once("ready", async () => {
       { body: commands }
     );
 
-    console.log("✅ Comandos de ADER-AI registrados.");
+    console.log("✅ Comandos registrados correctamente.");
+
   } catch (error) {
     console.error("Error registrando comandos:", error);
   }
 });
 
 // ==========================================
-// DIAGNÓSTICO Y CONVERSACIONES AUTOMÁTICAS
+// DETECTOR DE MENSAJES
 // ==========================================
 
 client.on("messageCreate", async message => {
 
-  // DIAGNÓSTICO: muestra todos los mensajes recibidos.
   console.log(
     "📩 MENSAJE RECIBIDO:",
     message.author.username,
-    "| Contenido:",
-    message.content,
-    "| Canal:",
-    message.channelId
+    "|",
+    message.content
   );
 
-  if (message.author.bot) {
-    console.log("Ignorado: mensaje de un bot.");
-    return;
-  }
-
-  if (!message.guild) {
-    console.log("Ignorado: mensaje privado.");
-    return;
-  }
+  if (message.author.bot) return;
+  if (!message.guild) return;
 
   const content = message.content.trim();
 
-  if (!content) {
-    console.log("Ignorado: mensaje sin contenido de texto.");
-    return;
-  }
+  if (!content) return;
 
   const key = getHistoryKey(message);
   const session = sessions.get(key);
 
   if (!session) {
-    console.log("⚪ Mensaje recibido, pero no hay sesión activa:", key);
+    console.log("⚪ No hay conversación activa para este usuario.");
     return;
   }
 
   if (Date.now() - session.lastActivity >= SESSION_TIMEOUT) {
-    console.log("⏱️ Sesión vencida.");
     await expireSession(key, session);
     return;
   }
 
-  console.log("🟢 Sesión activa detectada:", key);
+  console.log("🟢 Conversación activa detectada.");
 
-  // Reiniciar el minuto de inactividad.
   touchSession(key, session);
 
-  // Procesar mensajes en orden.
   session.queue = session.queue
     .then(async () => {
       if (sessions.get(key) !== session) return;
@@ -496,7 +474,7 @@ client.on("messageCreate", async message => {
       await answerSessionMessage(message, key, session);
     })
     .catch(error => {
-      console.error("Error en cola de conversación:", error);
+      console.error("Error en la cola:", error);
     });
 });
 
@@ -508,7 +486,6 @@ client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const name = interaction.commandName;
-
   stats.total++;
 
   try {
@@ -534,7 +511,7 @@ client.on("interactionCreate", async interaction => {
           },
           {
             name: "⚙️ Utilidades",
-            value: "`/ping` `/estado` `/servidor` `/usuario`"
+            value: "`/ping` `/estado` `/servidor` `/usuario` `/decir`"
           },
           {
             name: "💬 Conversaciones",
@@ -629,12 +606,28 @@ client.on("interactionCreate", async interaction => {
 
     // IA
     if (name === "ia") {
-      startSession(interaction);
-
+      const { key } = startSession(interaction);
       const prompt = interaction.options.getString("pregunta");
 
       if (prompt) {
-        return replyAI(interaction, prompt);
+        await interaction.deferReply();
+
+        try {
+          const answer = await askAI(key, prompt);
+
+          stats.ia++;
+
+          return interaction.editReply({
+            embeds: [createAIEmbed(answer)]
+          });
+
+        } catch (error) {
+          console.error("Error de IA:", error);
+
+          return interaction.editReply(
+            "❌ ADER-AI tuvo un problema al procesar tu pregunta."
+          );
+        }
       }
 
       const embed = new EmbedBuilder()
@@ -764,8 +757,7 @@ client.on("interactionCreate", async interaction => {
 
         const response = await fetch(url, {
           headers: {
-            Authorization:
-              `Bearer ${process.env.POLLINATIONS_API_KEY}`
+            Authorization: `Bearer ${process.env.POLLINATIONS_API_KEY}`
           },
           signal: AbortSignal.timeout(120000)
         });
@@ -871,8 +863,7 @@ client.on("interactionCreate", async interaction => {
           },
           {
             name: "Cuenta creada",
-            value:
-              `<t:${Math.floor(user.createdTimestamp / 1000)}:D>`,
+            value: `<t:${Math.floor(user.createdTimestamp / 1000)}:D>`,
             inline: true
           }
         )
@@ -883,23 +874,30 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // DECIR
+    // DECIR - SOLO PROPIETARIO
     if (name === "decir") {
       if (!OWNER_ID || interaction.user.id !== OWNER_ID) {
         return interaction.reply({
-          content:
-            "🔒 Este comando está reservado al propietario de ADER-AI.",
+          content: "🔒 Este comando está reservado al propietario de ADER-AI.",
           ephemeral: true
         });
       }
 
       const mensaje = interaction.options.getString("mensaje");
 
-      return interaction.reply({
+      await interaction.deferReply({
+        ephemeral: true
+      });
+
+      await interaction.channel.send({
         content: mensaje,
         allowedMentions: {
           parse: []
         }
+      });
+
+      return interaction.editReply({
+        content: "✅ Mensaje publicado por ADER-AI."
       });
     }
 
@@ -921,7 +919,7 @@ client.on("interactionCreate", async interaction => {
 });
 
 // ==========================================
-// CONEXIÓN FINAL
+// CONEXIÓN
 // ==========================================
 
 client.login(process.env.DISCORD_TOKEN);
