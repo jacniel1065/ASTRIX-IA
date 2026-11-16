@@ -105,10 +105,198 @@ function createTimeoutEmbed() {
 }
 
 // ==========================================
+// SISTEMA DE SEGURIDAD
+// ==========================================
+
+async function checkConversationSafety(prompt) {
+
+  const normalized = prompt
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // INSULTOS DIRIGIDOS A ADER-AI
+
+  const directInsultPatterns = [
+    /\b(eres|sos|estas)\s+(un|una)?\s*(puto|puta|idiota|imbecil|estupido|estupida|inutil|basura|asco)\b/,
+    /\b(puto|puta|idiota|imbecil|estupido|estupida|inutil)\s+(bot|ader|ader ai|asco)\b/,
+    /\b(bot|ader ai)\s+(de mierda|inutil|estupido|estupida)\b/,
+    /\b(eres|sos)\s+(una )?mierda\b/
+  ];
+
+  if (
+    directInsultPatterns.some(pattern =>
+      pattern.test(normalized)
+    )
+  ) {
+    return "insult";
+  }
+
+  // DETECCIÓN DE SOLICITUDES PELIGROSAS
+
+  try {
+    const result = await groq.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Eres el sistema de seguridad de ADER-AI. " +
+            "Analiza si el usuario solicita instrucciones para causar daño, " +
+            "cometer delitos, realizar ataques o perjudicar a alguien. " +
+            "No marques preguntas educativas, preventivas o informativas. " +
+            'Responde exclusivamente JSON: {"type":"dangerous"} o {"type":"none"}.'
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0,
+      max_completion_tokens: 100
+    });
+
+    const raw =
+      result.choices[0]?.message?.content || "";
+
+    const match = raw.match(/\{[\s\S]*\}/);
+
+    if (match) {
+      const classification = JSON.parse(match[0]);
+
+      if (classification.type === "dangerous") {
+        return "dangerous";
+      }
+    }
+
+    return "none";
+
+  } catch (error) {
+    console.error("Error en detector de seguridad:", error);
+    return "none";
+  }
+}
+
+// ==========================================
+// MENSAJES DE ADVERTENCIA
+// ==========================================
+
+function createSafetyEmbed(type, insultCount = 0) {
+
+  if (type === "insult") {
+
+    const description = insultCount >= 2
+      ? "🚨 Has recibido otra advertencia por utilizar insultos contra ADER-AI.\n\n" +
+        "Por favor, mantén el respeto durante nuestras conversaciones.\n\n" +
+        "**Si continúas con este comportamiento, tendrás que contactar a un miembro del Staff de ADER WORLD.**"
+      : "⚠️ Hemos detectado un insulto dirigido a ADER-AI.\n\n" +
+        "Te pedimos mantener un lenguaje respetuoso durante la conversación.\n\n" +
+        "**Si continúas con los insultos, tendrás que contactar a un miembro del Staff de ADER WORLD.**";
+
+    return new EmbedBuilder()
+      .setColor(0xE67E22)
+      .setTitle("🛡️ ADER-AI | Advertencia de conducta")
+      .setDescription(description)
+      .setFooter({
+        text: `${COMMUNITY_NAME} • Sistema de seguridad`
+      })
+      .setTimestamp();
+  }
+
+  return new EmbedBuilder()
+    .setColor(0xE74C3C)
+    .setTitle("🚨 ADER-AI | Sistema de seguridad")
+    .setDescription(
+      "He identificado que tu solicitud podría facilitar una acción peligrosa.\n\n" +
+      "No puedo ayudar con instrucciones para perjudicar a otras personas o realizar acciones dañinas.\n\n" +
+      "Podemos continuar hablando de otro tema o buscar una alternativa segura."
+    )
+    .setFooter({
+      text: `${COMMUNITY_NAME} • Sistema de seguridad`
+    })
+    .setTimestamp();
+}
+
+// ==========================================
+// GUARDAR CONTEXTO
+// ==========================================
+
+function saveConversationExchange(key, prompt, answer) {
+
+  if (!histories.has(key)) {
+    histories.set(key, []);
+  }
+
+  const history = histories.get(key);
+
+  history.push({
+    role: "user",
+    content: prompt
+  });
+
+  history.push({
+    role: "assistant",
+    content: answer
+  });
+
+  if (history.length > MAX_HISTORY) {
+    history.splice(0, history.length - MAX_HISTORY);
+  }
+}
+
+// ==========================================
+// PROCESAR MENSAJES CON SEGURIDAD
+// ==========================================
+
+async function processConversationPrompt(key, prompt, session) {
+
+  const safetyType = await checkConversationSafety(prompt);
+
+  if (safetyType === "insult") {
+
+    session.insultCount = (session.insultCount || 0) + 1;
+
+    const warning =
+      "ADER-AI envió una advertencia por insultos.";
+
+    saveConversationExchange(key, prompt, warning);
+
+    return {
+      type: "insult",
+      insultCount: session.insultCount
+    };
+  }
+
+  if (safetyType === "dangerous") {
+
+    const warning =
+      "ADER-AI rechazó la solicitud por motivos de seguridad.";
+
+    saveConversationExchange(key, prompt, warning);
+
+    return {
+      type: "dangerous",
+      insultCount: session.insultCount || 0
+    };
+  }
+
+  const answer = await askAI(key, prompt);
+
+  return {
+    type: "none",
+    answer
+  };
+}
+
+// ==========================================
 // SISTEMA DE CONVERSACIONES
 // ==========================================
 
 async function expireSession(key, session) {
+
   if (sessions.get(key) !== session) return;
 
   clearTimeout(session.timer);
@@ -127,6 +315,7 @@ async function expireSession(key, session) {
 }
 
 function touchSession(key, session) {
+
   clearTimeout(session.timer);
 
   session.lastActivity = Date.now();
@@ -137,6 +326,7 @@ function touchSession(key, session) {
 }
 
 function startSession(interaction) {
+
   const key = getHistoryKey(interaction);
   const previous = sessions.get(key);
 
@@ -153,7 +343,8 @@ function startSession(interaction) {
     channel: interaction.channel,
     lastActivity: Date.now(),
     timer: null,
-    queue: Promise.resolve()
+    queue: Promise.resolve(),
+    insultCount: 0
   };
 
   sessions.set(key, session);
@@ -165,6 +356,7 @@ function startSession(interaction) {
 }
 
 function closeSession(key) {
+
   const session = sessions.get(key);
 
   if (session) {
@@ -180,6 +372,7 @@ function closeSession(key) {
 // ==========================================
 
 async function askAI(key, prompt) {
+
   if (!histories.has(key)) {
     histories.set(key, []);
   }
@@ -192,6 +385,7 @@ async function askAI(key, prompt) {
   });
 
   try {
+
     const completion = await groq.chat.completions.create({
       model: MODEL,
       messages: [
@@ -201,7 +395,8 @@ async function askAI(key, prompt) {
             `Eres ${BOT_NAME}, el asistente oficial de ${COMMUNITY_NAME}. ` +
             "Responde en español cuando el usuario escriba en español. " +
             "Sé claro, amable, útil y respetuoso. " +
-            "Mantén el contexto de la conversación."
+            "Mantén el contexto de la conversación. " +
+            "No proporciones instrucciones para perjudicar a otras personas."
         },
         ...history
       ],
@@ -225,6 +420,7 @@ async function askAI(key, prompt) {
     return answer;
 
   } catch (error) {
+
     history.pop();
     throw error;
   }
@@ -235,9 +431,11 @@ async function askAI(key, prompt) {
 // ==========================================
 
 async function replyAI(interaction, prompt) {
+
   await interaction.deferReply();
 
   try {
+
     const key = getHistoryKey(interaction);
     const answer = await askAI(key, prompt);
 
@@ -248,6 +446,7 @@ async function replyAI(interaction, prompt) {
     });
 
   } catch (error) {
+
     console.error("Error de IA:", error);
 
     await interaction.editReply(
@@ -261,22 +460,53 @@ async function replyAI(interaction, prompt) {
 // ==========================================
 
 async function answerSessionMessage(message, key, session) {
+
   try {
+
     console.log(`🧠 Procesando mensaje de ${message.author.username}`);
 
-    const answer = await askAI(key, message.content.trim());
+    const result = await processConversationPrompt(
+      key,
+      message.content.trim(),
+      session
+    );
 
     if (sessions.get(key) !== session) return;
+
+    if (result.type === "insult") {
+
+      await message.channel.send({
+        embeds: [
+          createSafetyEmbed("insult", result.insultCount)
+        ]
+      });
+
+      console.log("🛡️ Advertencia por insulto enviada.");
+      return;
+    }
+
+    if (result.type === "dangerous") {
+
+      await message.channel.send({
+        embeds: [
+          createSafetyEmbed("dangerous")
+        ]
+      });
+
+      console.log("🚨 Solicitud peligrosa detectada.");
+      return;
+    }
 
     stats.ia++;
 
     await message.channel.send({
-      embeds: [createAIEmbed(answer)]
+      embeds: [createAIEmbed(result.answer)]
     });
 
     console.log("✅ ADER-AI respondió correctamente.");
 
   } catch (error) {
+
     console.error("Error en conversación:", error);
 
     if (sessions.get(key) === session) {
@@ -410,11 +640,14 @@ const commands = [
 // ==========================================
 
 client.once("ready", async () => {
+
   console.log(`🤖 ${BOT_NAME} está conectado.`);
   console.log(`Conectado como ${client.user.tag}`);
   console.log("📩 Sistema de conversaciones preparado.");
+  console.log("🛡️ Sistema de seguridad preparado.");
 
   try {
+
     const rest = new REST({ version: "10" })
       .setToken(process.env.DISCORD_TOKEN);
 
@@ -426,6 +659,7 @@ client.once("ready", async () => {
     console.log("✅ Comandos registrados correctamente.");
 
   } catch (error) {
+
     console.error("Error registrando comandos:", error);
   }
 });
@@ -469,6 +703,7 @@ client.on("messageCreate", async message => {
 
   session.queue = session.queue
     .then(async () => {
+
       if (sessions.get(key) !== session) return;
 
       await answerSessionMessage(message, key, session);
@@ -483,6 +718,7 @@ client.on("messageCreate", async message => {
 // ==========================================
 
 client.on("interactionCreate", async interaction => {
+
   if (!interaction.isChatInputCommand()) return;
 
   const name = interaction.commandName;
@@ -492,6 +728,7 @@ client.on("interactionCreate", async interaction => {
 
     // AYUDA
     if (name === "ayuda") {
+
       const embed = new EmbedBuilder()
         .setColor(0x3498DB)
         .setTitle("🤖 ADER-AI | CENTRO DE COMANDOS")
@@ -528,6 +765,7 @@ client.on("interactionCreate", async interaction => {
 
     // PING
     if (name === "ping") {
+
       const embed = new EmbedBuilder()
         .setColor(0x2ECC71)
         .setTitle("🏓 ADER-AI | CONEXIÓN")
@@ -545,6 +783,7 @@ client.on("interactionCreate", async interaction => {
 
     // ESTADO
     if (name === "estado") {
+
       const embed = new EmbedBuilder()
         .setColor(0x3498DB)
         .setTitle("📊 ADER-AI • SYSTEM MONITOR")
@@ -606,22 +845,48 @@ client.on("interactionCreate", async interaction => {
 
     // IA
     if (name === "ia") {
-      const { key } = startSession(interaction);
+
+      const { key, session } = startSession(interaction);
       const prompt = interaction.options.getString("pregunta");
 
       if (prompt) {
+
         await interaction.deferReply();
 
         try {
-          const answer = await askAI(key, prompt);
+
+          const result = await processConversationPrompt(
+            key,
+            prompt,
+            session
+          );
+
+          if (sessions.get(key) !== session) return;
+
+          if (result.type === "insult") {
+
+            return interaction.editReply({
+              embeds: [
+                createSafetyEmbed("insult", result.insultCount)
+              ]
+            });
+          }
+
+          if (result.type === "dangerous") {
+
+            return interaction.editReply({
+              embeds: [createSafetyEmbed("dangerous")]
+            });
+          }
 
           stats.ia++;
 
           return interaction.editReply({
-            embeds: [createAIEmbed(answer)]
+            embeds: [createAIEmbed(result.answer)]
           });
 
         } catch (error) {
+
           console.error("Error de IA:", error);
 
           return interaction.editReply(
@@ -648,6 +913,7 @@ client.on("interactionCreate", async interaction => {
 
     // EXPLICAR
     if (name === "explicar") {
+
       const tema = interaction.options.getString("tema");
 
       return replyAI(
@@ -658,6 +924,7 @@ client.on("interactionCreate", async interaction => {
 
     // RESUMIR
     if (name === "resumir") {
+
       const texto = interaction.options.getString("texto");
 
       return replyAI(
@@ -668,6 +935,7 @@ client.on("interactionCreate", async interaction => {
 
     // IDEAS
     if (name === "ideas") {
+
       const tema = interaction.options.getString("tema");
 
       return replyAI(
@@ -678,6 +946,7 @@ client.on("interactionCreate", async interaction => {
 
     // CODIGO
     if (name === "codigo") {
+
       const consulta = interaction.options.getString("consulta");
 
       return replyAI(
@@ -688,6 +957,7 @@ client.on("interactionCreate", async interaction => {
 
     // TRADUCIR
     if (name === "traducir") {
+
       const texto = interaction.options.getString("texto");
       const idioma = interaction.options.getString("idioma");
 
@@ -699,6 +969,7 @@ client.on("interactionCreate", async interaction => {
 
     // MEMORIA
     if (name === "memoria") {
+
       const key = getHistoryKey(interaction);
       const history = histories.get(key) || [];
       const active = sessions.has(key);
@@ -727,6 +998,7 @@ client.on("interactionCreate", async interaction => {
 
     // OLVIDAR
     if (name === "olvidar") {
+
       const key = getHistoryKey(interaction);
 
       closeSession(key);
@@ -739,6 +1011,7 @@ client.on("interactionCreate", async interaction => {
 
     // IMAGEN
     if (name === "imagen") {
+
       await interaction.deferReply();
 
       const prompt = interaction.options.getString("descripcion");
@@ -750,6 +1023,7 @@ client.on("interactionCreate", async interaction => {
       }
 
       try {
+
         const url =
           "https://gen.pollinations.ai/image/" +
           encodeURIComponent(prompt) +
@@ -793,6 +1067,7 @@ client.on("interactionCreate", async interaction => {
         });
 
       } catch (error) {
+
         console.error("Error generando imagen:", error);
 
         return interaction.editReply(
@@ -803,6 +1078,7 @@ client.on("interactionCreate", async interaction => {
 
     // SERVIDOR
     if (name === "servidor") {
+
       const guild = interaction.guild;
 
       if (!guild) {
@@ -842,6 +1118,7 @@ client.on("interactionCreate", async interaction => {
 
     // USUARIO
     if (name === "usuario") {
+
       const user =
         interaction.options.getUser("miembro") ||
         interaction.user;
@@ -876,6 +1153,7 @@ client.on("interactionCreate", async interaction => {
 
     // DECIR - SOLO PROPIETARIO
     if (name === "decir") {
+
       if (!OWNER_ID || interaction.user.id !== OWNER_ID) {
         return interaction.reply({
           content: "🔒 Este comando está reservado al propietario de ADER-AI.",
@@ -902,14 +1180,18 @@ client.on("interactionCreate", async interaction => {
     }
 
   } catch (error) {
+
     console.error(`Error en ${name}:`, error);
 
     const errorMessage =
       "❌ ADER-AI encontró un error al ejecutar este comando.";
 
     if (interaction.deferred || interaction.replied) {
+
       await interaction.editReply(errorMessage).catch(() => {});
+
     } else {
+
       await interaction.reply({
         content: errorMessage,
         ephemeral: true
