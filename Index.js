@@ -15,9 +15,12 @@ const Groq = require("groq-sdk");
 // ==========================================
 
 const BOT_NAME = "ADER-AI";
+const COMMUNITY_NAME = "ADER WORLD";
 const OWNER_ID = process.env.OWNER_ID;
+
 const MODEL = "openai/gpt-oss-120b";
 const SESSION_TIMEOUT = 60 * 1000;
+const MAX_HISTORY = 10;
 
 if (!process.env.DISCORD_TOKEN) {
   throw new Error("Falta DISCORD_TOKEN");
@@ -27,7 +30,10 @@ if (!process.env.GROQ_API_KEY) {
   throw new Error("Falta GROQ_API_KEY");
 }
 
-// MessageContent es necesario para leer mensajes normales.
+// ==========================================
+// CONEXIÓN DISCORD
+// ==========================================
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -41,7 +47,7 @@ const groq = new Groq({
 });
 
 // ==========================================
-// ESTADÍSTICAS Y CONVERSACIONES
+// ESTADÍSTICAS
 // ==========================================
 
 const stats = {
@@ -51,10 +57,7 @@ const stats = {
   startedAt: Date.now()
 };
 
-// Historial de cada usuario por canal.
 const histories = new Map();
-
-// Sesiones de conversación activas.
 const sessions = new Map();
 
 // ==========================================
@@ -70,10 +73,10 @@ function formatUptime(ms) {
   return `${days}d ${hours}h ${minutes}m`;
 }
 
-// La conversación es independiente por servidor,
-// canal y usuario.
 function getHistoryKey(source) {
-  return `${source.guildId || "dm"}-${source.channelId || "unknown"}-${source.user.id}`;
+  const user = source.user || source.author;
+
+  return `${source.guildId || "dm"}-${source.channelId || "unknown"}-${user.id}`;
 }
 
 function createAIEmbed(answer) {
@@ -84,7 +87,20 @@ function createAIEmbed(answer) {
     })
     .setDescription(answer.slice(0, 4000))
     .setFooter({
-      text: "ADER WORLD • ADER-AI"
+      text: `${COMMUNITY_NAME} • ${BOT_NAME}`
+    });
+}
+
+function createTimeoutEmbed() {
+  return new EmbedBuilder()
+    .setColor(0xE67E22)
+    .setTitle("⏱️ Conversación finalizada")
+    .setDescription(
+      "Tu sesión ha finalizado por inactividad.\n\n" +
+      "Para iniciar una nueva conversación, escribe **/ia**."
+    )
+    .setFooter({
+      text: `${COMMUNITY_NAME} • ${BOT_NAME}`
     });
 }
 
@@ -92,43 +108,38 @@ function createAIEmbed(answer) {
 // SISTEMA DE SESIONES
 // ==========================================
 
+async function expireSession(key, session) {
+  if (sessions.get(key) !== session) return;
+
+  clearTimeout(session.timer);
+
+  sessions.delete(key);
+  histories.delete(key);
+
+  console.log(`⏱️ Sesión finalizada: ${session.userId}`);
+
+  try {
+    await session.channel.send({
+      embeds: [createTimeoutEmbed()]
+    });
+  } catch (error) {
+    console.error("Error enviando aviso de cierre:", error);
+  }
+}
+
 function touchSession(key, session) {
   clearTimeout(session.timer);
 
   session.lastActivity = Date.now();
 
-  session.timer = setTimeout(async () => {
-    // Evita cerrar una sesión nueva por error.
-    if (sessions.get(key) !== session) return;
-
-    sessions.delete(key);
-    histories.delete(key);
-
-    const embed = new EmbedBuilder()
-      .setColor(0xE67E22)
-      .setTitle("⏱️ Conversación finalizada")
-      .setDescription(
-        "Tu sesión ha finalizado por inactividad.\n\n" +
-        "Para iniciar una nueva conversación, escribe **/ia**."
-      )
-      .setFooter({
-        text: "ADER WORLD • ADER-AI"
-      });
-
-    try {
-      await session.channel.send({
-        embeds: [embed]
-      });
-    } catch (error) {
-      console.error("No pude enviar el aviso de cierre:", error);
-    }
+  session.timer = setTimeout(() => {
+    expireSession(key, session);
   }, SESSION_TIMEOUT);
 }
 
 function startSession(interaction) {
   const key = getHistoryKey(interaction);
 
-  // Si ya había una sesión, se reemplaza.
   const previous = sessions.get(key);
 
   if (previous) {
@@ -150,6 +161,8 @@ function startSession(interaction) {
   sessions.set(key, session);
   touchSession(key, session);
 
+  console.log(`🟢 Nueva sesión: ${key}`);
+
   return { key, session };
 }
 
@@ -162,6 +175,8 @@ function closeSession(key) {
   }
 
   histories.delete(key);
+
+  console.log(`🧹 Sesión eliminada: ${key}`);
 }
 
 // ==========================================
@@ -187,10 +202,10 @@ async function askAI(key, prompt) {
         {
           role: "system",
           content:
-            `Eres ${BOT_NAME}, un asistente de inteligencia artificial ` +
-            "de ADER WORLD. Responde en español cuando el usuario escriba " +
-            "en español. Sé claro, útil, respetuoso y natural. " +
-            "Mantén el contexto de la conversación."
+            `Eres ${BOT_NAME}, el asistente oficial de ` +
+            `${COMMUNITY_NAME}. Responde en español cuando ` +
+            "el usuario escriba en español. Sé claro, útil, " +
+            "amable y respetuoso. Mantén el contexto."
         },
         ...history
       ],
@@ -207,19 +222,22 @@ async function askAI(key, prompt) {
       content: answer
     });
 
-    // Conservamos los últimos 10 mensajes.
-    if (history.length > 10) {
-      history.splice(0, history.length - 10);
+    if (history.length > MAX_HISTORY) {
+      history.splice(0, history.length - MAX_HISTORY);
     }
 
     return answer;
+
   } catch (error) {
     history.pop();
     throw error;
   }
 }
 
-// Respuesta para comandos slash.
+// ==========================================
+// RESPUESTAS DE COMANDOS
+// ==========================================
+
 async function replyAI(interaction, prompt) {
   await interaction.deferReply();
 
@@ -232,28 +250,39 @@ async function replyAI(interaction, prompt) {
     await interaction.editReply({
       embeds: [createAIEmbed(answer)]
     });
+
   } catch (error) {
     console.error("Error de IA:", error);
 
     await interaction.editReply(
-      "❌ ADER-AI tuvo un problema al procesar tu solicitud. Inténtalo nuevamente."
+      "❌ ADER-AI tuvo un problema al procesar tu solicitud."
     );
   }
 }
 
-// Respuesta a mensajes normales durante una sesión.
+// ==========================================
+// RESPUESTAS A MENSAJES NORMALES
+// ==========================================
+
 async function answerSessionMessage(message, key, session) {
   try {
+    console.log(`🧠 ADER-AI procesando: ${message.content}`);
+
     const answer = await askAI(key, message.content.trim());
 
-    // Si la sesión fue cerrada o reemplazada, no enviar respuesta.
-    if (sessions.get(key) !== session) return;
+    if (sessions.get(key) !== session) {
+      console.log("La sesión ya no está activa.");
+      return;
+    }
 
     stats.ia++;
 
     await message.channel.send({
       embeds: [createAIEmbed(answer)]
     });
+
+    console.log("✅ ADER-AI respondió correctamente.");
+
   } catch (error) {
     console.error("Error en conversación:", error);
 
@@ -281,7 +310,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("estado")
-    .setDescription("Muestra el estado y estadísticas de ADER-AI"),
+    .setDescription("Muestra el estado de ADER-AI"),
 
   new SlashCommandBuilder()
     .setName("ia")
@@ -348,7 +377,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("olvidar")
-    .setDescription("Borra tu contexto de conversación"),
+    .setDescription("Borra tu contexto y cierra tu conversación"),
 
   new SlashCommandBuilder()
     .setName("imagen")
@@ -390,6 +419,7 @@ const commands = [
 client.once("ready", async () => {
   console.log(`🤖 ${BOT_NAME} está conectado.`);
   console.log(`Conectado como ${client.user.tag}`);
+  console.log("📩 Sistema de mensajes normales preparado.");
 
   try {
     const rest = new REST({ version: "10" })
@@ -400,48 +430,73 @@ client.once("ready", async () => {
       { body: commands }
     );
 
-    console.log("Comandos de ADER-AI registrados correctamente.");
+    console.log("✅ Comandos de ADER-AI registrados.");
   } catch (error) {
     console.error("Error registrando comandos:", error);
   }
 });
 
 // ==========================================
-// MENSAJES NORMALES: CONVERSACIÓN AUTOMÁTICA
+// DIAGNÓSTICO Y CONVERSACIONES AUTOMÁTICAS
 // ==========================================
 
 client.on("messageCreate", async message => {
-  // Ignorar bots y mensajes fuera de servidores.
-  if (message.author.bot || !message.guild) return;
+
+  // DIAGNÓSTICO: muestra todos los mensajes recibidos.
+  console.log(
+    "📩 MENSAJE RECIBIDO:",
+    message.author.username,
+    "| Contenido:",
+    message.content,
+    "| Canal:",
+    message.channelId
+  );
+
+  if (message.author.bot) {
+    console.log("Ignorado: mensaje de un bot.");
+    return;
+  }
+
+  if (!message.guild) {
+    console.log("Ignorado: mensaje privado.");
+    return;
+  }
 
   const content = message.content.trim();
 
-  if (!content) return;
+  if (!content) {
+    console.log("Ignorado: mensaje sin contenido de texto.");
+    return;
+  }
 
   const key = getHistoryKey(message);
   const session = sessions.get(key);
 
-  // Si no hay sesión, ADER-AI no responde.
-  if (!session) return;
-
-  // Comprobar si ya se cumplió el minuto.
-  if (Date.now() - session.lastActivity >= SESSION_TIMEOUT) {
-    closeSession(key);
+  if (!session) {
+    console.log("⚪ Mensaje recibido, pero no hay sesión activa:", key);
     return;
   }
 
-  // Cada mensaje reinicia el contador.
+  if (Date.now() - session.lastActivity >= SESSION_TIMEOUT) {
+    console.log("⏱️ Sesión vencida.");
+    await expireSession(key, session);
+    return;
+  }
+
+  console.log("🟢 Sesión activa detectada:", key);
+
+  // Reiniciar el minuto de inactividad.
   touchSession(key, session);
 
-  // Procesar los mensajes en orden.
+  // Procesar mensajes en orden.
   session.queue = session.queue
-    .then(() => {
+    .then(async () => {
       if (sessions.get(key) !== session) return;
 
-      return answerSessionMessage(message, key, session);
+      await answerSessionMessage(message, key, session);
     })
     .catch(error => {
-      console.error("Error en la cola de conversación:", error);
+      console.error("Error en cola de conversación:", error);
     });
 });
 
@@ -463,9 +518,7 @@ client.on("interactionCreate", async interaction => {
       const embed = new EmbedBuilder()
         .setColor(0x3498DB)
         .setTitle("🤖 ADER-AI | CENTRO DE COMANDOS")
-        .setDescription(
-          "Bienvenido al centro de ayuda de ADER-AI."
-        )
+        .setDescription("Bienvenido al centro de ayuda de ADER-AI.")
         .addFields(
           {
             name: "🧠 Inteligencia artificial",
@@ -485,11 +538,13 @@ client.on("interactionCreate", async interaction => {
           },
           {
             name: "💬 Conversaciones",
-            value: "Usa `/ia` una vez y continúa escribiendo mensajes normales. La sesión termina después de 60 segundos de inactividad."
+            value: "Usa `/ia` una vez y continúa escribiendo mensajes normales. La sesión finaliza tras 60 segundos de inactividad."
           }
         )
         .setThumbnail(client.user.displayAvatarURL())
-        .setFooter({ text: "ADER WORLD • ADER-AI" });
+        .setFooter({
+          text: `${COMMUNITY_NAME} • ${BOT_NAME}`
+        });
 
       return interaction.reply({ embeds: [embed] });
     }
@@ -504,7 +559,9 @@ client.on("interactionCreate", async interaction => {
           value: `${client.ws.ping} ms`,
           inline: true
         })
-        .setFooter({ text: "ADER WORLD • ADER-AI" });
+        .setFooter({
+          text: `${COMMUNITY_NAME} • ${BOT_NAME}`
+        });
 
       return interaction.reply({ embeds: [embed] });
     }
@@ -562,15 +619,18 @@ client.on("interactionCreate", async interaction => {
             inline: true
           }
         )
-        .setFooter({ text: "ADER WORLD • ADER-AI SYSTEM" })
+        .setFooter({
+          text: `${COMMUNITY_NAME} • ${BOT_NAME} SYSTEM`
+        })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed] });
     }
 
-    // IA: INICIAR CONVERSACIÓN
+    // IA
     if (name === "ia") {
-      const { key } = startSession(interaction);
+      startSession(interaction);
+
       const prompt = interaction.options.getString("pregunta");
 
       if (prompt) {
@@ -586,11 +646,11 @@ client.on("interactionCreate", async interaction => {
           "No necesitas volver a utilizar `/ia`.\n\n" +
           "⏱️ La conversación finalizará después de 60 segundos sin actividad."
         )
-        .setFooter({ text: "ADER WORLD • ADER-AI" });
+        .setFooter({
+          text: `${COMMUNITY_NAME} • ${BOT_NAME}`
+        });
 
-      return interaction.reply({
-        embeds: [embed]
-      });
+      return interaction.reply({ embeds: [embed] });
     }
 
     // EXPLICAR
@@ -659,10 +719,12 @@ client.on("interactionCreate", async interaction => {
             : "Todavía no tengo contexto guardado de esta conversación."
         )
         .addFields({
-          name: "Estado de la sesión",
+          name: "Estado de sesión",
           value: active ? "🟢 Activa" : "⚪ Sin sesión activa"
         })
-        .setFooter({ text: "ADER WORLD • ADER-AI" });
+        .setFooter({
+          text: `${COMMUNITY_NAME} • ${BOT_NAME}`
+        });
 
       return interaction.reply({
         embeds: [embed],
@@ -677,8 +739,7 @@ client.on("interactionCreate", async interaction => {
       closeSession(key);
 
       return interaction.reply({
-        content:
-          "🧹 Tu contexto de conversación ha sido borrado y tu sesión ha sido cerrada.",
+        content: "🧹 Tu contexto ha sido borrado y tu conversación ha sido cerrada.",
         ephemeral: true
       });
     }
@@ -703,7 +764,8 @@ client.on("interactionCreate", async interaction => {
 
         const response = await fetch(url, {
           headers: {
-            Authorization: `Bearer ${process.env.POLLINATIONS_API_KEY}`
+            Authorization:
+              `Bearer ${process.env.POLLINATIONS_API_KEY}`
           },
           signal: AbortSignal.timeout(120000)
         });
@@ -714,7 +776,9 @@ client.on("interactionCreate", async interaction => {
           );
         }
 
-        const buffer = Buffer.from(await response.arrayBuffer());
+        const buffer = Buffer.from(
+          await response.arrayBuffer()
+        );
 
         const image = new AttachmentBuilder(buffer, {
           name: "ader-ai-imagen.png"
@@ -725,7 +789,9 @@ client.on("interactionCreate", async interaction => {
           .setTitle("🎨 ADER-AI | IMAGEN GENERADA")
           .setDescription(`**Descripción:** ${prompt}`)
           .setImage("attachment://ader-ai-imagen.png")
-          .setFooter({ text: "Creado con ADER-AI • ADER WORLD" });
+          .setFooter({
+            text: `Creado con ${BOT_NAME} • ${COMMUNITY_NAME}`
+          });
 
         stats.imagenes++;
 
@@ -775,7 +841,9 @@ client.on("interactionCreate", async interaction => {
             inline: true
           }
         )
-        .setFooter({ text: "ADER WORLD • ADER-AI" });
+        .setFooter({
+          text: `${COMMUNITY_NAME} • ${BOT_NAME}`
+        });
 
       return interaction.reply({ embeds: [embed] });
     }
@@ -783,7 +851,8 @@ client.on("interactionCreate", async interaction => {
     // USUARIO
     if (name === "usuario") {
       const user =
-        interaction.options.getUser("miembro") || interaction.user;
+        interaction.options.getUser("miembro") ||
+        interaction.user;
 
       const embed = new EmbedBuilder()
         .setColor(0x3498DB)
@@ -802,20 +871,24 @@ client.on("interactionCreate", async interaction => {
           },
           {
             name: "Cuenta creada",
-            value: `<t:${Math.floor(user.createdTimestamp / 1000)}:D>`,
+            value:
+              `<t:${Math.floor(user.createdTimestamp / 1000)}:D>`,
             inline: true
           }
         )
-        .setFooter({ text: "ADER WORLD • ADER-AI" });
+        .setFooter({
+          text: `${COMMUNITY_NAME} • ${BOT_NAME}`
+        });
 
       return interaction.reply({ embeds: [embed] });
     }
 
-    // DECIR - SOLO PROPIETARIO
+    // DECIR
     if (name === "decir") {
       if (!OWNER_ID || interaction.user.id !== OWNER_ID) {
         return interaction.reply({
-          content: "🔒 Este comando está reservado al propietario de ADER-AI.",
+          content:
+            "🔒 Este comando está reservado al propietario de ADER-AI.",
           ephemeral: true
         });
       }
@@ -824,21 +897,23 @@ client.on("interactionCreate", async interaction => {
 
       return interaction.reply({
         content: mensaje,
-        allowedMentions: { parse: [] }
+        allowedMentions: {
+          parse: []
+        }
       });
     }
 
   } catch (error) {
     console.error(`Error en ${name}:`, error);
 
-    const message =
+    const errorMessage =
       "❌ ADER-AI encontró un error al ejecutar este comando.";
 
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply(message).catch(() => {});
+      await interaction.editReply(errorMessage).catch(() => {});
     } else {
       await interaction.reply({
-        content: message,
+        content: errorMessage,
         ephemeral: true
       }).catch(() => {});
     }
@@ -846,7 +921,7 @@ client.on("interactionCreate", async interaction => {
 });
 
 // ==========================================
-// CONEXIÓN
+// CONEXIÓN FINAL
 // ==========================================
 
 client.login(process.env.DISCORD_TOKEN);
