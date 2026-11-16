@@ -1,46 +1,30 @@
-
 const {
   Client,
   GatewayIntentBits,
+  SlashCommandBuilder,
   REST,
   Routes,
-  SlashCommandBuilder,
-  Events,
-  EmbedBuilder
+  EmbedBuilder,
+  AttachmentBuilder
 } = require("discord.js");
 
 const Groq = require("groq-sdk");
 
-// CONFIGURACIÓN
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const OWNER_ID = process.env.OWNER_ID;
-
-const PREFIX = "a!";
-const MODEL = "openai/gpt-oss-120b";
-
-if (!DISCORD_TOKEN) throw new Error("Falta DISCORD_TOKEN");
-if (!GROQ_API_KEY) throw new Error("Falta GROQ_API_KEY");
-
-const groq = new Groq({ apiKey: GROQ_API_KEY });
-
-// CLIENTE DISCORD
-const bot = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds]
 });
 
-// MEMORIA TEMPORAL
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY
+});
+
+const MODEL = "openai/gpt-oss-120b";
 const conversations = new Map();
 
-// COMANDOS
 const commands = [
   new SlashCommandBuilder()
     .setName("ayuda")
-    .setDescription("Muestra todos los comandos"),
+    .setDescription("Muestra los comandos de ASTRIX AI"),
 
   new SlashCommandBuilder()
     .setName("ping")
@@ -48,70 +32,56 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("ia")
-    .setDescription("Conversa con ASTRIX AI")
+    .setDescription("Habla con ASTRIX AI")
     .addStringOption(o =>
-      o.setName("pregunta")
-        .setDescription("Tu pregunta")
-        .setRequired(true)
+      o.setName("mensaje").setDescription("Tu mensaje").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("explicar")
-    .setDescription("Explica un tema")
+    .setDescription("Explica cualquier tema")
     .addStringOption(o =>
-      o.setName("tema")
-        .setDescription("Tema que quieres aprender")
-        .setRequired(true)
+      o.setName("tema").setDescription("Tema").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("resumir")
     .setDescription("Resume un texto")
     .addStringOption(o =>
-      o.setName("texto")
-        .setDescription("Texto para resumir")
-        .setRequired(true)
+      o.setName("texto").setDescription("Texto").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("ideas")
     .setDescription("Genera ideas")
     .addStringOption(o =>
-      o.setName("tema")
-        .setDescription("Tema de las ideas")
-        .setRequired(true)
+      o.setName("tema").setDescription("Tema").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("codigo")
     .setDescription("Ayuda con programación")
     .addStringOption(o =>
-      o.setName("problema")
-        .setDescription("Tu problema")
-        .setRequired(true)
+      o.setName("problema").setDescription("Problema").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("traducir")
-    .setDescription("Traduce un texto")
+    .setDescription("Traduce textos")
     .addStringOption(o =>
-      o.setName("texto")
-        .setDescription("Texto para traducir")
-        .setRequired(true)
+      o.setName("texto").setDescription("Texto").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("idioma")
-        .setDescription("Idioma de destino")
-        .setRequired(true)
+      o.setName("idioma").setDescription("Idioma").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("memoria")
-    .setDescription("Consulta tu memoria"),
+    .setDescription("Información sobre la memoria"),
 
   new SlashCommandBuilder()
     .setName("olvidar")
-    .setDescription("Borra tu memoria"),
+    .setDescription("Borra tu conversación"),
 
   new SlashCommandBuilder()
     .setName("estado")
@@ -125,195 +95,116 @@ const commands = [
     .setName("usuario")
     .setDescription("Información de un usuario")
     .addUserOption(o =>
-      o.setName("miembro")
-        .setDescription("Usuario")
-        .setRequired(false)
+      o.setName("persona").setDescription("Usuario")
     ),
 
   new SlashCommandBuilder()
     .setName("decir")
-    .setDescription("Enviar un mensaje")
+    .setDescription("Envía un mensaje")
     .addStringOption(o =>
-      o.setName("mensaje")
-        .setDescription("Mensaje")
+      o.setName("mensaje").setDescription("Mensaje").setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("imagen")
+    .setDescription("Genera imágenes con IA")
+    .addStringOption(o =>
+      o.setName("descripcion")
+        .setDescription("Describe la imagen que deseas")
         .setRequired(true)
     )
-];
+].map(c => c.toJSON());
 
-// FUNCIÓN DE INTELIGENCIA ARTIFICIAL
-async function askAI(userId, guildId, question) {
-  const key = `${guildId}:${userId}`;
+async function askAI(userId, guildId, prompt) {
+  const key = `${guildId || "dm"}-${userId}`;
 
   if (!conversations.has(key)) {
     conversations.set(key, []);
   }
 
   const history = conversations.get(key);
+  history.push({ role: "user", content: prompt });
 
-  const messages = [
-    {
-      role: "system",
-      content:
-        "Eres ASTRIX AI, un asistente inteligente de Discord. " +
-        "Responde en español, de forma clara, útil y profesional."
-    },
-    ...history,
-    {
-      role: "user",
-      content: question
-    }
-  ];
-
-  const completion = await groq.chat.completions.create({
+  const result = await groq.chat.completions.create({
     model: MODEL,
-    messages,
+    messages: [
+      {
+        role: "system",
+        content: "Eres ASTRIX AI, un asistente inteligente, amable y útil. Responde en español."
+      },
+      ...history
+    ],
     temperature: 0.7,
     max_completion_tokens: 1500
   });
 
   const answer =
-    completion.choices[0]?.message?.content ||
-    "No pude generar una respuesta.";
+    result.choices[0].message.content || "No pude responder.";
 
-  history.push(
-    { role: "user", content: question },
-    { role: "assistant", content: answer }
-  );
+  history.push({ role: "assistant", content: answer });
 
   if (history.length > 10) {
     history.splice(0, history.length - 10);
   }
 
-  return answer.slice(0, 1900);
+  return answer;
 }
 
-// PANEL DE AYUDA
-function createHelpEmbed() {
-  return new EmbedBuilder()
-    .setColor(0x5865F2)
-    .setTitle("✦ ASTRIX AI | Centro de ayuda")
-    .setDescription(
-      "Tu asistente inteligente está listo para ayudarte."
-    )
-    .addFields(
-      {
-        name: "🤖 Inteligencia artificial",
-        value:
-          "`/ia` — Conversa con la IA\n" +
-          "`/explicar` — Aprende un tema\n" +
-          "`/resumir` — Resume textos"
-      },
-      {
-        name: "🎨 Herramientas creativas",
-        value:
-          "`/ideas` — Genera ideas\n" +
-          "`/codigo` — Ayuda con programación\n" +
-          "`/traducir` — Traduce textos"
-      },
-      {
-        name: "🧠 Memoria",
-        value:
-          "`/memoria` — Consulta tu memoria\n" +
-          "`/olvidar` — Borra tu memoria"
-      },
-      {
-        name: "⚙️ Sistema",
-        value:
-          "`/ping` — Latencia\n" +
-          "`/estado` — Estado del bot\n" +
-          "`/servidor` — Información del servidor\n" +
-          "`/usuario` — Información de usuario\n" +
-          "`/decir` — Enviar mensaje (propietario)"
-      }
-    )
-    .setFooter({
-      text: "ASTRIX AI • Inteligencia para tu comunidad"
-    })
-    .setTimestamp();
-}
-
-// CONEXIÓN
-bot.once(Events.ClientReady, async client => {
+client.once("ready", async () => {
   console.log(`ASTRIX AI conectado como ${client.user.tag}`);
 
-  try {
-    const rest = new REST({ version: "10" })
-      .setToken(DISCORD_TOKEN);
+  const rest = new REST({ version: "10" })
+    .setToken(process.env.DISCORD_TOKEN);
 
+  try {
     await rest.put(
       Routes.applicationCommands(client.user.id),
-      {
-        body: commands.map(c => c.toJSON())
-      }
+      { body: commands }
     );
-
-    console.log("Comandos globales registrados correctamente.");
+    console.log("Comandos registrados correctamente.");
   } catch (error) {
-    console.error("Error registrando comandos:", error.message);
+    console.error("Error registrando comandos:", error);
   }
 });
 
-// PREFIJO a!
-bot.on(Events.MessageCreate, async message => {
-  if (message.author.bot || !message.guild) return;
-
-  if (!message.content.toLowerCase().startsWith(PREFIX)) return;
-
-  const question = message.content.slice(PREFIX.length).trim();
-
-  if (!question) {
-    return message.reply("💙 Escribe una pregunta después de `a!`.");
-  }
-
-  try {
-    await message.channel.sendTyping();
-
-    const answer = await askAI(
-      message.author.id,
-      message.guild.id,
-      question
-    );
-
-    await message.reply(answer);
-  } catch (error) {
-    console.error("Error de Groq:", error.message);
-    await message.reply(
-      "⚠️ No pude conectar con la IA. Inténtalo nuevamente."
-    );
-  }
-});
-
-// COMANDOS SLASH
-bot.on(Events.InteractionCreate, async interaction => {
+client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const command = interaction.commandName;
+  const name = interaction.commandName;
 
   try {
-    if (command === "ayuda") {
+    if (name === "ping") {
+      return interaction.reply(`🏓 Pong: ${client.ws.ping} ms`);
+    }
+
+    if (name === "ayuda") {
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle("✦ ASTRIX AI")
+        .setDescription("Tu asistente inteligente.")
+        .addFields(
+          {
+            name: "🤖 Inteligencia artificial",
+            value: "`/ia` `/explicar` `/resumir` `/ideas` `/codigo` `/traducir`"
+          },
+          { name: "🖼️ Imágenes", value: "`/imagen`" },
+          { name: "⚙️ Utilidades", value: "`/ping` `/estado` `/servidor` `/usuario`" },
+          { name: "🧠 Memoria", value: "`/memoria` `/olvidar`" },
+          { name: "👑 Otros", value: "`/decir`" }
+        )
+        .setFooter({ text: "ASTRIX AI • Inteligencia artificial" });
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (name === "estado") {
       return interaction.reply({
-        embeds: [createHelpEmbed()],
+        content: `🟢 ASTRIX AI está activo. Latencia: ${client.ws.ping} ms`,
         ephemeral: true
       });
     }
 
-    if (command === "ping") {
-      return interaction.reply(
-        `🏓 Pong! ${bot.ws.ping} ms`
-      );
-    }
-
-    if (command === "estado") {
-      return interaction.reply({
-        content:
-          `🟢 ASTRIX AI está en línea.\n` +
-          `Latencia: ${bot.ws.ping} ms\n` +
-          `Activo: ${Math.floor(bot.uptime / 1000)} segundos`,
-        ephemeral: true
-      });
-    }
-
-    if (command === "servidor") {
+    if (name === "servidor") {
       if (!interaction.guild) {
         return interaction.reply({
           content: "Este comando solo funciona en servidores.",
@@ -321,159 +212,169 @@ bot.on(Events.InteractionCreate, async interaction => {
         });
       }
 
-      const guild = interaction.guild;
-
       const embed = new EmbedBuilder()
         .setColor(0x5865F2)
-        .setTitle(`🏰 ${guild.name}`)
-        .addFields(
-          {
-            name: "Miembros",
-            value: `${guild.memberCount}`,
-            inline: true
-          },
-          {
-            name: "ID",
-            value: guild.id,
-            inline: true
-          }
-        );
-
-      return interaction.reply({
-        embeds: [embed],
-        ephemeral: true
-      });
-    }
-
-    if (command === "usuario") {
-      const user =
-        interaction.options.getUser("miembro") ||
-        interaction.user;
-
-      const embed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle(`👤 ${user.username}`)
-        .setThumbnail(user.displayAvatarURL())
+        .setTitle(interaction.guild.name)
         .addFields({
-          name: "ID",
-          value: user.id
+          name: "Miembros",
+          value: `${interaction.guild.memberCount}`
         });
 
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (name === "usuario") {
+      const user =
+        interaction.options.getUser("persona") || interaction.user;
+
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle(user.username)
+        .setThumbnail(user.displayAvatarURL())
+        .addFields(
+          { name: "Usuario", value: user.tag },
+          { name: "ID", value: user.id }
+        );
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (name === "olvidar") {
+      conversations.delete(
+        `${interaction.guildId || "dm"}-${interaction.user.id}`
+      );
+
       return interaction.reply({
-        embeds: [embed],
+        content: "🧠 Tu conversación ha sido borrada.",
         ephemeral: true
       });
     }
 
-    if (command === "decir") {
-      if (!OWNER_ID || interaction.user.id !== OWNER_ID) {
+    if (name === "memoria") {
+      return interaction.reply({
+        content: "🧠 ASTRIX AI conserva hasta 10 mensajes de tu conversación mientras permanece encendido.",
+        ephemeral: true
+      });
+    }
+
+    if (name === "decir") {
+      if (
+        !process.env.OWNER_ID ||
+        interaction.user.id !== process.env.OWNER_ID
+      ) {
         return interaction.reply({
-          content: "⛔ No tienes permiso.",
+          content: "⛔ No tienes permiso para usar este comando.",
           ephemeral: true
         });
       }
 
-      const text = interaction.options.getString("mensaje");
+      const mensaje = interaction.options.getString("mensaje");
 
       await interaction.reply({
         content: "✅ Mensaje enviado.",
         ephemeral: true
       });
 
-      return interaction.channel.send({
-        content: text,
-        allowedMentions: { parse: [] }
+      return interaction.channel.send(mensaje);
+    }
+
+    if (name === "imagen") {
+      await interaction.deferReply();
+
+      const prompt = interaction.options.getString("descripcion");
+
+      if (!process.env.POLLINATIONS_API_KEY) {
+        return interaction.editReply(
+          "❌ Falta configurar POLLINATIONS_API_KEY en Lunafy."
+        );
+      }
+
+      const url =
+        "https://gen.pollinations.ai/image/" +
+        encodeURIComponent(prompt) +
+        "?model=flux&width=1024&height=1024&nologo=true";
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${process.env.POLLINATIONS_API_KEY}`
+        },
+        signal: AbortSignal.timeout(120000)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Pollinations respondió con código ${response.status}`);
+      }
+
+      const imageBuffer = Buffer.from(await response.arrayBuffer());
+
+      if (!imageBuffer.length) {
+        throw new Error("La imagen recibida está vacía.");
+      }
+
+      const image = new AttachmentBuilder(imageBuffer, {
+        name: "astrix-imagen.png"
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle("🖼️ ASTRIX AI | Imagen generada")
+        .setDescription(`**Descripción:** ${prompt}`)
+        .setImage("attachment://astrix-imagen.png")
+        .setFooter({ text: "Creado con ASTRIX AI" });
+
+      return interaction.editReply({
+        embeds: [embed],
+        files: [image]
       });
     }
 
-    if (command === "memoria") {
-      const key = `${interaction.guildId || "dm"}:${interaction.user.id}`;
-      const history = conversations.get(key) || [];
+    const options = {
+      ia: ["mensaje", null],
+      explicar: ["tema", "Explica de forma sencilla: "],
+      resumir: ["texto", "Resume este texto: "],
+      ideas: ["tema", "Dame ideas sobre: "],
+      codigo: ["problema", "Ayúdame con este problema de programación: "],
+      traducir: ["texto", "Traduce al idioma "]
+    };
 
-      return interaction.reply({
-        content: `🧠 Tienes ${history.length} mensajes en tu memoria temporal.`,
-        ephemeral: true
-      });
-    }
+    if (options[name]) {
+      const [field, prefix] = options[name];
+      const value = interaction.options.getString(field);
 
-    if (command === "olvidar") {
-      const key = `${interaction.guildId || "dm"}:${interaction.user.id}`;
-      conversations.delete(key);
+      let prompt;
 
-      return interaction.reply({
-        content: "🧹 Tu memoria temporal ha sido borrada.",
-        ephemeral: true
-      });
-    }
+      if (name === "traducir") {
+        const idioma = interaction.options.getString("idioma");
+        prompt = `Traduce al idioma ${idioma}: ${value}`;
+      } else {
+        prompt = prefix ? prefix + value : value;
+      }
 
-    let question = "";
-
-    if (command === "ia") {
-      question = interaction.options.getString("pregunta");
-    }
-
-    if (command === "explicar") {
-      question =
-        "Explícame este tema de forma sencilla: " +
-        interaction.options.getString("tema");
-    }
-
-    if (command === "resumir") {
-      question =
-        "Resume este texto: " +
-        interaction.options.getString("texto");
-    }
-
-    if (command === "ideas") {
-      question =
-        "Dame ideas originales sobre: " +
-        interaction.options.getString("tema");
-    }
-
-    if (command === "codigo") {
-      question =
-        "Ayúdame con este problema de programación: " +
-        interaction.options.getString("problema");
-    }
-
-    if (command === "traducir") {
-      question =
-        "Traduce este texto al idioma " +
-        interaction.options.getString("idioma") +
-        ": " +
-        interaction.options.getString("texto");
-    }
-
-    if (question) {
       await interaction.deferReply();
 
       const answer = await askAI(
         interaction.user.id,
-        interaction.guildId || "dm",
-        question
+        interaction.guildId,
+        prompt
       );
 
-      return interaction.editReply(answer);
+      return interaction.editReply(answer.slice(0, 2000));
     }
 
   } catch (error) {
-    console.error("Error en comando:", error.message);
+    console.error("Error en comando:", error);
 
-    const message =
-      "⚠️ Ocurrió un error al procesar tu solicitud.";
+    const message = "❌ Ocurrió un error. Inténtalo de nuevo más tarde.";
 
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply(message).catch(() => {});
-    } else {
-      await interaction.reply({
-        content: message,
-        ephemeral: true
-      }).catch(() => {});
+      return interaction.editReply(message).catch(() => {});
     }
+
+    return interaction.reply({
+      content: message,
+      ephemeral: true
+    }).catch(() => {});
   }
 });
 
-// INICIAR BOT
-bot.login(DISCORD_TOKEN).catch(error => {
-  console.error("Error iniciando ASTRIX AI:", error.message);
-});
+client.login(process.env.DISCORD_TOKEN);
