@@ -17,6 +17,7 @@ const Groq = require("groq-sdk");
 const BOT_NAME = "ADER-AI";
 const COMMUNITY_NAME = "ADER WORLD";
 const OWNER_ID = process.env.OWNER_ID;
+const STAFF_ROLE_ID = "1359658223962951871";
 
 const MODEL = "openai/gpt-oss-120b";
 const SESSION_TIMEOUT = 60 * 1000;
@@ -102,6 +103,23 @@ function createTimeoutEmbed() {
     .setFooter({
       text: `${COMMUNITY_NAME} • ${BOT_NAME}`
     });
+}
+
+// NUEVO: AVISO DE CIERRE MANUAL
+
+function createManualCloseEmbed() {
+  return new EmbedBuilder()
+    .setColor(0x2ECC71)
+    .setTitle("🔒 Conversación finalizada")
+    .setDescription(
+      "Has cerrado correctamente tu conversación con ADER-AI.\n\n" +
+      "Tu contexto de conversación ha sido eliminado.\n\n" +
+      "Para conversar nuevamente, escribe **/ia**."
+    )
+    .setFooter({
+      text: `${COMMUNITY_NAME} • ${BOT_NAME}`
+    })
+    .setTimestamp();
 }
 
 // ==========================================
@@ -220,6 +238,20 @@ function createSafetyEmbed(type, insultCount = 0) {
     .setTimestamp();
 }
 
+// NUEVO: MENSAJE CON MENCIÓN REAL A STAFF
+
+function createSafetyNoticePayload(type, insultCount = 0) {
+  return {
+    content: `<@&${STAFF_ROLE_ID}>`,
+    embeds: [
+      createSafetyEmbed(type, insultCount)
+    ],
+    allowedMentions: {
+      roles: [STAFF_ROLE_ID]
+    }
+  };
+}
+
 // ==========================================
 // GUARDAR CONTEXTO
 // ==========================================
@@ -255,6 +287,10 @@ async function processConversationPrompt(key, prompt, session) {
 
   const safetyType = await checkConversationSafety(prompt);
 
+  if (sessions.get(key) !== session) {
+    return { type: "closed" };
+  }
+
   if (safetyType === "insult") {
 
     session.insultCount = (session.insultCount || 0) + 1;
@@ -284,6 +320,10 @@ async function processConversationPrompt(key, prompt, session) {
   }
 
   const answer = await askAI(key, prompt);
+
+  if (sessions.get(key) !== session) {
+    return { type: "closed" };
+  }
 
   return {
     type: "none",
@@ -475,27 +515,25 @@ async function answerSessionMessage(message, key, session) {
 
     if (result.type === "insult") {
 
-      await message.channel.send({
-        embeds: [
-          createSafetyEmbed("insult", result.insultCount)
-        ]
-      });
+      await message.channel.send(
+        createSafetyNoticePayload("insult", result.insultCount)
+      );
 
-      console.log("🛡️ Advertencia por insulto enviada.");
+      console.log("🛡️ Advertencia por insulto enviada con mención a Staff.");
       return;
     }
 
     if (result.type === "dangerous") {
 
-      await message.channel.send({
-        embeds: [
-          createSafetyEmbed("dangerous")
-        ]
-      });
+      await message.channel.send(
+        createSafetyNoticePayload("dangerous")
+      );
 
-      console.log("🚨 Solicitud peligrosa detectada.");
+      console.log("🚨 Solicitud peligrosa detectada y notificada a Staff.");
       return;
     }
+
+    if (result.type === "closed") return;
 
     stats.ia++;
 
@@ -645,6 +683,8 @@ client.once("ready", async () => {
   console.log(`Conectado como ${client.user.tag}`);
   console.log("📩 Sistema de conversaciones preparado.");
   console.log("🛡️ Sistema de seguridad preparado.");
+  console.log("🔔 Sistema de notificación a Staff preparado.");
+  console.log("🔒 Sistema de cierre manual preparado.");
 
   try {
 
@@ -694,6 +734,22 @@ client.on("messageCreate", async message => {
 
   if (Date.now() - session.lastActivity >= SESSION_TIMEOUT) {
     await expireSession(key, session);
+    return;
+  }
+
+  // NUEVO: CIERRE MANUAL DE LA CONVERSACIÓN
+
+  if (/^cerrar\s+conversaci[oó]n[.!?]*$/i.test(content)) {
+
+    closeSession(key);
+
+    await message.channel.send({
+      embeds: [createManualCloseEmbed()]
+    }).catch(error => {
+      console.error("Error enviando confirmación de cierre:", error);
+    });
+
+    console.log(`🔒 Conversación cerrada manualmente: ${message.author.id}`);
     return;
   }
 
@@ -752,7 +808,7 @@ client.on("interactionCreate", async interaction => {
           },
           {
             name: "💬 Conversaciones",
-            value: "Usa `/ia` una vez y continúa escribiendo mensajes normales. La sesión finaliza tras 60 segundos de inactividad."
+            value: "Usa `/ia` una vez y continúa escribiendo mensajes normales. Escribe `cerrar conversación` para finalizarla. También se cierra tras 60 segundos de inactividad."
           }
         )
         .setThumbnail(client.user.displayAvatarURL())
@@ -865,19 +921,19 @@ client.on("interactionCreate", async interaction => {
 
           if (result.type === "insult") {
 
-            return interaction.editReply({
-              embeds: [
-                createSafetyEmbed("insult", result.insultCount)
-              ]
-            });
+            return interaction.editReply(
+              createSafetyNoticePayload("insult", result.insultCount)
+            );
           }
 
           if (result.type === "dangerous") {
 
-            return interaction.editReply({
-              embeds: [createSafetyEmbed("dangerous")]
-            });
+            return interaction.editReply(
+              createSafetyNoticePayload("dangerous")
+            );
           }
+
+          if (result.type === "closed") return;
 
           stats.ia++;
 
@@ -902,6 +958,7 @@ client.on("interactionCreate", async interaction => {
           `¡Hola, ${interaction.user.username}!\n\n` +
           "Ya puedes conversar conmigo escribiendo mensajes normales. " +
           "No necesitas volver a utilizar `/ia`.\n\n" +
+          "🔒 Cuando termines, escribe **cerrar conversación** para finalizar.\n\n" +
           "⏱️ La conversación finalizará después de 60 segundos sin actividad."
         )
         .setFooter({
