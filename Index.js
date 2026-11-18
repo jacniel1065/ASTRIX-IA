@@ -27,6 +27,10 @@ const MODEL = "openai/gpt-oss-120b";
 const SESSION_TIMEOUT = 60 * 1000;
 const MAX_HISTORY = 10;
 
+// MENSAJE AUTOMÁTICO DE BIENVENIDA
+const WELCOME_CHANNEL_ID = "1571196169495912608";
+const WELCOME_INTERVAL = 5 * 60 * 1000;
+
 const AUTH_FILE = path.join(__dirname, "authorized-guilds.json");
 
 if (!process.env.DISCORD_TOKEN) {
@@ -146,6 +150,72 @@ async function rejectInteraction(interaction, message) {
   }
 
   return interaction.reply(payload).catch(() => {});
+}
+
+// ==========================================
+// MENSAJE AUTOMÁTICO CADA 5 MINUTOS
+// ==========================================
+
+function createWelcomeGuideEmbed() {
+  return new EmbedBuilder()
+    .setColor(0x3498DB)
+    .setTitle("👋 ¡Bienvenidos a ADER WORLD!")
+    .setDescription(
+      "🤖 **¿Quieres utilizar ADER-AI? Aquí tienes una guía de sus comandos:**\n\n" +
+
+      "💬 `/ia` — Habla con la inteligencia artificial.\n" +
+      "🖼️ `/imagen` — Genera imágenes mediante IA.\n" +
+      "📚 `/explicar` — Explica temas y conceptos.\n" +
+      "📝 `/resumir` — Resume textos.\n" +
+      "💡 `/ideas` — Genera ideas creativas.\n" +
+      "💻 `/codigo` — Ayuda con programación.\n" +
+      "🌐 `/traducir` — Traduce textos.\n" +
+      "🧠 `/memoria` — Consulta tu contexto de conversación.\n" +
+      "🧹 `/olvidar` — Borra tu contexto de conversación.\n" +
+      "❓ `/ayuda` — Consulta todos los comandos disponibles.\n\n" +
+
+      "📌 **¿Cómo conversar conmigo?**\n" +
+      "Utiliza `/ia` para iniciar una conversación. Después puedes escribirme mensajes normales sin volver a utilizar el comando.\n\n" +
+
+      "⚠️ **Recordatorio de respeto:**\n" +
+      "No insultes a ADER-AI ni a los demás miembros. Mantengamos un ambiente respetuoso y agradable para todos.\n\n" +
+
+      "✨ ¡Disfruta de ADER-AI!"
+    )
+    .setFooter({
+      text: `${COMMUNITY_NAME} • ${BOT_NAME}`
+    })
+    .setTimestamp();
+}
+
+async function sendWelcomeGuide() {
+  try {
+    const channel = await client.channels.fetch(WELCOME_CHANNEL_ID);
+
+    if (!channel || !channel.isTextBased() || !channel.send) {
+      console.error("❌ El canal de bienvenida no existe o no permite enviar mensajes.");
+      return;
+    }
+
+    await channel.send({
+      embeds: [createWelcomeGuideEmbed()]
+    });
+
+    console.log("📢 Mensaje automático de bienvenida enviado.");
+
+  } catch (error) {
+    console.error("Error enviando mensaje automático:", error);
+  }
+}
+
+function startWelcomeGuide() {
+  console.log("📢 Sistema de bienvenida automática iniciado.");
+  console.log("⏰ Frecuencia: cada 5 minutos.");
+  console.log(`📍 Canal: ${WELCOME_CHANNEL_ID}`);
+
+  setInterval(() => {
+    sendWelcomeGuide();
+  }, WELCOME_INTERVAL);
 }
 
 // ==========================================
@@ -815,6 +885,9 @@ client.once("ready", async () => {
     console.log("🔐 Comandos administrativos registrados en ADER WORLD.");
     console.log("🛡️ Sistema de servidores autorizados preparado.");
     console.log("💾 Autorizaciones y permisos de /decir cargados.");
+
+    // INICIAR MENSAJE AUTOMÁTICO CADA 5 MINUTOS
+    startWelcomeGuide();
 
   } catch (error) {
     console.error("Error durante la configuración:", error);
