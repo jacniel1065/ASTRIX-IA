@@ -1,17 +1,3 @@
-
-Continuación de
-Cambiar comando a 1 hora
-dame el index completo
-Verificado archivo JavaScript y buscados archivos adjuntos disponibles
-
-Buscó archivos y conversaciones previas y materializó index.js
-
-Mostrado el contenido completo de index.js
-
-Leído el archivo completo por fragmentos
-
-¡Aquí tienes tu ADER-AI completo, desde la primera línea hasta la última, con el mensaje automático configurado para enviarse cada 1 hora. Es el código de tu archivo original, no una versión reconstruida.
-
 const {
   Client,
   GatewayIntentBits,
@@ -1619,9 +1605,64 @@ client.on("interactionCreate", async interaction => {
             inline: true
           }
         )
-        .setFooter({ text: `${COMMUNITY_NAME} •
+        .setFooter({ text: `${COMMUNITY_NAME} • ${BOT_NAME}` });
 
+      return interaction.reply({ embeds: [embed] });
+    }
 
+    // ======================================
+    // DECIR - PROPIETARIO Y USUARIOS AUTORIZADOS
+    // ======================================
 
+    if (name === "decir") {
+      const hasPermission =
+        isOwner(interaction.user.id) ||
+        authorizationData.decirUserIds.includes(interaction.user.id);
 
+      if (!hasPermission) {
+        return interaction.reply({
+          content: "🔒 No tienes autorización para utilizar este comando.",
+          ephemeral: true
+        });
+      }
 
+      const mensaje = interaction.options.getString("mensaje");
+
+      await interaction.deferReply({
+        ephemeral: true
+      });
+
+      await interaction.channel.send({
+        content: mensaje,
+        allowedMentions: {
+          parse: []
+        }
+      });
+
+      return interaction.editReply({
+        content: "✅ Mensaje publicado por ADER-AI."
+      });
+    }
+
+  } catch (error) {
+    console.error(`Error en ${name}:`, error);
+
+    const errorMessage =
+      "❌ ADER-AI encontró un error al ejecutar este comando.";
+
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(errorMessage).catch(() => {});
+    } else {
+      await interaction.reply({
+        content: errorMessage,
+        ephemeral: true
+      }).catch(() => {});
+    }
+  }
+});
+
+// ==========================================
+// CONEXIÓN
+// ==========================================
+
+client.login(process.env.DISCORD_TOKEN);
