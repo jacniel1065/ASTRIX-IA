@@ -1,3 +1,17 @@
+
+Continuación de
+Cambiar comando a 1 hora
+dame el index completo
+Verificado archivo JavaScript y buscados archivos adjuntos disponibles
+
+Buscó archivos y conversaciones previas y materializó index.js
+
+Mostrado el contenido completo de index.js
+
+Leído el archivo completo por fragmentos
+
+¡Aquí tienes tu ADER-AI completo, desde la primera línea hasta la última, con el mensaje automático configurado para enviarse cada 1 hora. Es el código de tu archivo original, no una versión reconstruida.
+
 const {
   Client,
   GatewayIntentBits,
@@ -685,3 +699,929 @@ async function answerSessionMessage(message, key, session) {
     }
   }
 }
+
+// ==========================================
+// COMANDOS NORMALES
+// ==========================================
+
+const normalCommands = [
+  new SlashCommandBuilder()
+    .setName("ayuda")
+    .setDescription("Muestra todos los comandos de ADER-AI"),
+
+  new SlashCommandBuilder()
+    .setName("ping")
+    .setDescription("Comprueba la conexión de ADER-AI"),
+
+  new SlashCommandBuilder()
+    .setName("estado")
+    .setDescription("Muestra el estado de ADER-AI"),
+
+  new SlashCommandBuilder()
+    .setName("ia")
+    .setDescription("Inicia una conversación con ADER-AI")
+    .addStringOption(option =>
+      option.setName("pregunta")
+        .setDescription("Pregunta inicial (opcional)")
+        .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("explicar")
+    .setDescription("Solicita una explicación a ADER-AI")
+    .addStringOption(option =>
+      option.setName("tema")
+        .setDescription("Tema que deseas comprender")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("resumir")
+    .setDescription("Resume un texto con ADER-AI")
+    .addStringOption(option =>
+      option.setName("texto")
+        .setDescription("Texto que deseas resumir")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("ideas")
+    .setDescription("Genera ideas creativas")
+    .addStringOption(option =>
+      option.setName("tema")
+        .setDescription("Tema para generar ideas")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("codigo")
+    .setDescription("Obtén ayuda con programación")
+    .addStringOption(option =>
+      option.setName("consulta")
+        .setDescription("Tu duda de programación")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("traducir")
+    .setDescription("Traduce textos")
+    .addStringOption(option =>
+      option.setName("texto")
+        .setDescription("Texto que deseas traducir")
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName("idioma")
+        .setDescription("Idioma al que deseas traducir")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("memoria")
+    .setDescription("Consulta tu contexto de conversación"),
+
+  new SlashCommandBuilder()
+    .setName("olvidar")
+    .setDescription("Borra tu contexto de conversación"),
+
+  new SlashCommandBuilder()
+    .setName("imagen")
+    .setDescription("Genera una imagen con ADER-AI")
+    .addStringOption(option =>
+      option.setName("descripcion")
+        .setDescription("Describe la imagen que deseas crear")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("servidor")
+    .setDescription("Muestra información del servidor"),
+
+  new SlashCommandBuilder()
+    .setName("usuario")
+    .setDescription("Muestra información de un usuario")
+    .addUserOption(option =>
+      option.setName("miembro")
+        .setDescription("Usuario que deseas consultar")
+        .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("decir")
+    .setDescription("Envía un mensaje mediante ADER-AI")
+    .addStringOption(option =>
+      option.setName("mensaje")
+        .setDescription("Mensaje que deseas enviar")
+        .setRequired(true)
+    )
+].map(command => command.toJSON());
+
+// ==========================================
+// COMANDOS ADMINISTRATIVOS
+// Solo se registran en ADER WORLD
+// ==========================================
+
+const adminCommands = [
+  new SlashCommandBuilder()
+    .setName("autorizar-servidor")
+    .setDescription("Autoriza un servidor para utilizar ADER-AI")
+    .addStringOption(option =>
+      option.setName("servidor_id")
+        .setDescription("ID del servidor que deseas autorizar")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("desautorizar-servidor")
+    .setDescription("Retira la autorización de un servidor")
+    .addStringOption(option =>
+      option.setName("servidor_id")
+        .setDescription("ID del servidor que deseas desautorizar")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("delegar-autorizacion")
+    .setDescription("Designa o retira a la persona autorizada para administrar servidores")
+    .addUserOption(option =>
+      option.setName("usuario")
+        .setDescription("Persona a delegar; omítela para retirar la delegación")
+        .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("autorizar-decir")
+    .setDescription("Autoriza a un usuario para utilizar /decir")
+    .addUserOption(option =>
+      option.setName("usuario")
+        .setDescription("Usuario que podrá utilizar /decir")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("revocar-decir")
+    .setDescription("Retira el permiso de utilizar /decir")
+    .addUserOption(option =>
+      option.setName("usuario")
+        .setDescription("Usuario al que se le retirará el permiso")
+        .setRequired(true)
+    )
+].map(command => command.toJSON());
+
+// ==========================================
+// REGISTRO DE COMANDOS
+// ==========================================
+
+client.once("ready", async () => {
+  console.log(`🤖 ${BOT_NAME} está conectado.`);
+  console.log(`Conectado como ${client.user.tag}`);
+
+  try {
+    await loadAuthorizationData();
+
+    const rest = new REST({ version: "10" })
+      .setToken(process.env.DISCORD_TOKEN);
+
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: normalCommands }
+    );
+
+    await rest.put(
+      Routes.applicationGuildCommands(
+        client.user.id,
+        ADER_WORLD_GUILD_ID
+      ),
+      { body: adminCommands }
+    );
+
+    console.log("✅ Comandos normales registrados.");
+    console.log("🔐 Comandos administrativos registrados en ADER WORLD.");
+    console.log("🛡️ Sistema de servidores autorizados preparado.");
+    console.log("💾 Autorizaciones y permisos de /decir cargados.");
+
+    // INICIAR MENSAJE AUTOMÁTICO CADA 1 HORA
+    startWelcomeGuide();
+
+  } catch (error) {
+    console.error("Error durante la configuración:", error);
+  }
+});
+
+// ==========================================
+// DETECTOR DE MENSAJES
+// ==========================================
+
+client.on("messageCreate", async message => {
+  if (message.author.bot) return;
+  if (!message.guild) return;
+
+  if (!isAuthorizedGuild(message.guild.id)) {
+    return;
+  }
+
+  const content = message.content.trim();
+
+  if (!content) return;
+
+  const key = getHistoryKey(message);
+  const session = sessions.get(key);
+
+  if (!session) return;
+
+  if (Date.now() - session.lastActivity >= SESSION_TIMEOUT) {
+    await expireSession(key, session);
+    return;
+  }
+
+  if (/^cerrar\s+conversaci[oó]n[.!?]*$/i.test(content)) {
+    closeSession(key);
+
+    await message.channel.send({
+      embeds: [createManualCloseEmbed()]
+    }).catch(error => {
+      console.error("Error enviando confirmación:", error);
+    });
+
+    return;
+  }
+
+  touchSession(key, session);
+
+  session.queue = session.queue
+    .then(async () => {
+      if (sessions.get(key) !== session) return;
+
+      await answerSessionMessage(message, key, session);
+    })
+    .catch(error => {
+      console.error("Error en la cola:", error);
+    });
+});
+
+// ==========================================
+// INTERACCIONES
+// ==========================================
+
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  const name = interaction.commandName;
+
+  if (!interaction.guildId) {
+    return rejectInteraction(
+      interaction,
+      "🔒 ADER-AI solo funciona en servidores autorizados."
+    );
+  }
+
+  if (!isAuthorizedGuild(interaction.guildId)) {
+    return rejectInteraction(
+      interaction,
+      "🔒 Este servidor no está autorizado para utilizar ADER-AI."
+    );
+  }
+
+  if (
+    isAdminCommand(name) &&
+    interaction.guildId !== ADER_WORLD_GUILD_ID
+  ) {
+    return rejectInteraction(
+      interaction,
+      "🔒 Los comandos administrativos solo funcionan en ADER WORLD."
+    );
+  }
+
+  if (
+    isAdminCommand(name) &&
+    !isAuthorizationManager(interaction.user.id)
+  ) {
+    return rejectInteraction(
+      interaction,
+      "⛔ No tienes autorización para administrar los servidores de ADER-AI."
+    );
+  }
+
+  stats.total++;
+
+  try {
+
+    // ======================================
+    // AUTORIZAR SERVIDOR
+    // ======================================
+
+    if (name === "autorizar-servidor") {
+      const guildId = interaction.options.getString("servidor_id").trim();
+
+      if (!validGuildId(guildId)) {
+        return interaction.reply({
+          content: "❌ El ID del servidor no tiene un formato válido.",
+          ephemeral: true
+        });
+      }
+
+      if (authorizationData.guildIds.includes(guildId)) {
+        return interaction.reply({
+          content: "ℹ️ Ese servidor ya está autorizado.",
+          ephemeral: true
+        });
+      }
+
+      authorizationData.guildIds.push(guildId);
+      await saveAuthorizationData();
+
+      const embed = new EmbedBuilder()
+        .setColor(0x2ECC71)
+        .setTitle("🔓 Servidor autorizado")
+        .setDescription(
+          `El servidor con ID \`${guildId}\` ya puede utilizar ADER-AI.\n\n` +
+          "La autorización quedó guardada permanentemente."
+        )
+        .setFooter({ text: "ADER-AI | Sistema de autorizaciones" })
+        .setTimestamp();
+
+      return interaction.reply({
+        embeds: [embed],
+        ephemeral: true
+      });
+    }
+
+    // ======================================
+    // DESAUTORIZAR SERVIDOR
+    // ======================================
+
+    if (name === "desautorizar-servidor") {
+      const guildId = interaction.options.getString("servidor_id").trim();
+
+      if (!validGuildId(guildId)) {
+        return interaction.reply({
+          content: "❌ El ID del servidor no tiene un formato válido.",
+          ephemeral: true
+        });
+      }
+
+      if (guildId === ADER_WORLD_GUILD_ID) {
+        return interaction.reply({
+          content: "⛔ ADER WORLD no puede ser desautorizado.",
+          ephemeral: true
+        });
+      }
+
+      if (!authorizationData.guildIds.includes(guildId)) {
+        return interaction.reply({
+          content: "ℹ️ Ese servidor no estaba autorizado.",
+          ephemeral: true
+        });
+      }
+
+      authorizationData.guildIds =
+        authorizationData.guildIds.filter(id => id !== guildId);
+
+      await saveAuthorizationData();
+
+      for (const [key, session] of sessions.entries()) {
+        if (session.guildId === guildId) {
+          clearTimeout(session.timer);
+          sessions.delete(key);
+          histories.delete(key);
+        }
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0xE74C3C)
+        .setTitle("🔒 Servidor desautorizado")
+        .setDescription(
+          `Se retiró el permiso del servidor \`${guildId}\`.\n\n` +
+          "ADER-AI ya no responderá allí."
+        )
+        .setFooter({ text: "ADER-AI | Sistema de autorizaciones" })
+        .setTimestamp();
+
+      return interaction.reply({
+        embeds: [embed],
+        ephemeral: true
+      });
+    }
+
+    // ======================================
+    // DELEGAR AUTORIZACIÓN
+    // ======================================
+
+    if (name === "delegar-autorizacion") {
+      if (!isOwner(interaction.user.id)) {
+        return interaction.reply({
+          content: "⛔ Solo el propietario puede delegar permisos.",
+          ephemeral: true
+        });
+      }
+
+      const user = interaction.options.getUser("usuario");
+
+      if (!user) {
+        authorizationData.delegateId = null;
+        await saveAuthorizationData();
+
+        return interaction.reply({
+          content: "🔒 Se retiró la delegación. Ahora solo el propietario puede administrar servidores.",
+          ephemeral: true
+        });
+      }
+
+      if (user.bot) {
+        return interaction.reply({
+          content: "❌ No puedes delegar permisos a un bot.",
+          ephemeral: true
+        });
+      }
+
+      if (user.id === OWNER_ID) {
+        return interaction.reply({
+          content: "ℹ️ Esa persona ya es el propietario.",
+          ephemeral: true
+        });
+      }
+
+      authorizationData.delegateId = user.id;
+      await saveAuthorizationData();
+
+      const embed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle("🛡️ Delegación actualizada")
+        .setDescription(
+          `Se ha delegado la administración de servidores a ${user}.\n\n` +
+          "Esta persona podrá autorizar y desautorizar servidores desde ADER WORLD.\n\n" +
+          "**Solo el propietario puede cambiar o retirar esta delegación.**"
+        )
+        .setFooter({ text: "ADER-AI | Administración" })
+        .setTimestamp();
+
+      return interaction.reply({
+        embeds: [embed],
+        ephemeral: true
+      });
+    }
+
+    // ======================================
+    // AUTORIZAR /DECIR
+    // ======================================
+
+    if (name === "autorizar-decir") {
+      if (!isOwner(interaction.user.id)) {
+        return interaction.reply({
+          content: "⛔ Solo el propietario puede autorizar usuarios para /decir.",
+          ephemeral: true
+        });
+      }
+
+      const user = interaction.options.getUser("usuario");
+
+      if (user.bot) {
+        return interaction.reply({
+          content: "❌ No puedes autorizar bots.",
+          ephemeral: true
+        });
+      }
+
+      if (user.id === OWNER_ID) {
+        return interaction.reply({
+          content: "ℹ️ Esa persona ya es el propietario.",
+          ephemeral: true
+        });
+      }
+
+      if (authorizationData.decirUserIds.includes(user.id)) {
+        return interaction.reply({
+          content: "ℹ️ Ese usuario ya tiene permiso para utilizar /decir.",
+          ephemeral: true
+        });
+      }
+
+      authorizationData.decirUserIds.push(user.id);
+      await saveAuthorizationData();
+
+      return interaction.reply({
+        content: `✅ ${user} ahora puede utilizar /decir. El permiso quedó guardado.`,
+        allowedMentions: {
+          users: [user.id]
+        },
+        ephemeral: true
+      });
+    }
+
+    // ======================================
+    // REVOCAR /DECIR
+    // ======================================
+
+    if (name === "revocar-decir") {
+      if (!isOwner(interaction.user.id)) {
+        return interaction.reply({
+          content: "⛔ Solo el propietario puede retirar permisos de /decir.",
+          ephemeral: true
+        });
+      }
+
+      const user = interaction.options.getUser("usuario");
+
+      if (!authorizationData.decirUserIds.includes(user.id)) {
+        return interaction.reply({
+          content: "ℹ️ Ese usuario no tiene permiso para utilizar /decir.",
+          ephemeral: true
+        });
+      }
+
+      authorizationData.decirUserIds =
+        authorizationData.decirUserIds.filter(id => id !== user.id);
+
+      await saveAuthorizationData();
+
+      return interaction.reply({
+        content: `🔒 Se retiró el permiso de /decir a ${user}.`,
+        allowedMentions: {
+          users: [user.id]
+        },
+        ephemeral: true
+      });
+    }
+
+    // ======================================
+    // AYUDA
+    // ======================================
+
+    if (name === "ayuda") {
+      const embed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle("🤖 ADER-AI | CENTRO DE COMANDOS")
+        .setDescription("Bienvenido al centro de ayuda de ADER-AI.")
+        .addFields(
+          {
+            name: "🧠 Inteligencia artificial",
+            value: "`/ia` `/explicar` `/resumir` `/ideas` `/codigo` `/traducir`"
+          },
+          {
+            name: "🎨 Creatividad",
+            value: "`/imagen`"
+          },
+          {
+            name: "🧠 Memoria",
+            value: "`/memoria` `/olvidar`"
+          },
+          {
+            name: "⚙️ Utilidades",
+            value: "`/ping` `/estado` `/servidor` `/usuario` `/decir`"
+          },
+          {
+            name: "💬 Conversaciones",
+            value: "Usa `/ia` una vez y continúa escribiendo mensajes normales. Escribe `cerrar conversación` para finalizarla. También se cierra tras 60 segundos de inactividad."
+          }
+        )
+        .setThumbnail(client.user.displayAvatarURL())
+        .setFooter({ text: `${COMMUNITY_NAME} • ${BOT_NAME}` });
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // ======================================
+    // PING
+    // ======================================
+
+    if (name === "ping") {
+      const embed = new EmbedBuilder()
+        .setColor(0x2ECC71)
+        .setTitle("🏓 ADER-AI | CONEXIÓN")
+        .addFields({
+          name: "Latencia",
+          value: `${client.ws.ping} ms`,
+          inline: true
+        })
+        .setFooter({ text: `${COMMUNITY_NAME} • ${BOT_NAME}` });
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // ======================================
+    // ESTADO
+    // ======================================
+
+    if (name === "estado") {
+      const embed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle("📊 ADER-AI • SYSTEM MONITOR")
+        .setThumbnail(client.user.displayAvatarURL())
+        .addFields(
+          { name: "🟢 Estado", value: "En línea", inline: true },
+          { name: "🏓 Latencia", value: `${client.ws.ping} ms`, inline: true },
+          { name: "⏱️ Tiempo activo", value: formatUptime(Date.now() - stats.startedAt), inline: true },
+          { name: "📈 Comandos utilizados", value: `${stats.total}`, inline: true },
+          { name: "🧠 Consultas de IA", value: `${stats.ia}`, inline: true },
+          { name: "🎨 Imágenes solicitadas", value: `${stats.imagenes}`, inline: true },
+          { name: "🌎 Servidores", value: `${client.guilds.cache.size}`, inline: true },
+          { name: "👥 Usuarios en caché", value: `${client.users.cache.size}`, inline: true },
+          { name: "💬 Sesiones activas", value: `${sessions.size}`, inline: true },
+          { name: "🔐 Servidores autorizados", value: `${authorizationData.guildIds.length}`, inline: true }
+        )
+        .setFooter({ text: `${COMMUNITY_NAME} • ${BOT_NAME} SYSTEM` })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // ======================================
+    // IA
+    // ======================================
+
+    if (name === "ia") {
+      const { key, session } = startSession(interaction);
+      const prompt = interaction.options.getString("pregunta");
+
+      if (prompt) {
+        await interaction.deferReply();
+
+        try {
+          const result = await processConversationPrompt(key, prompt, session);
+
+          if (sessions.get(key) !== session) return;
+
+          if (result.type === "insult") {
+            session.insultCount = result.insultCount;
+
+            const notice = createSafetyNoticePayload(
+              "insult",
+              result.insultCount
+            );
+
+            notice.content = `<@${interaction.user.id}> ${notice.content}`;
+            notice.allowedMentions.users = [interaction.user.id];
+
+            return interaction.editReply(notice);
+          }
+
+          if (result.type === "dangerous") {
+            const notice = createSafetyNoticePayload("dangerous");
+
+            notice.content = `<@${interaction.user.id}> ${notice.content}`;
+            notice.allowedMentions.users = [interaction.user.id];
+
+            return interaction.editReply(notice);
+          }
+
+          if (result.type === "closed") return;
+
+          stats.ia++;
+
+          return interaction.editReply({
+            content: `<@${interaction.user.id}>`,
+            embeds: [createAIEmbed(result.answer)],
+            allowedMentions: {
+              users: [interaction.user.id]
+            }
+          });
+
+        } catch (error) {
+          console.error("Error de IA:", error);
+
+          return interaction.editReply({
+            content: `<@${interaction.user.id}>`,
+            embeds: [
+              new EmbedBuilder()
+                .setColor(0xE74C3C)
+                .setDescription("❌ ADER-AI tuvo un problema al procesar tu pregunta.")
+            ],
+            allowedMentions: {
+              users: [interaction.user.id]
+            }
+          });
+        }
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle("💬 Conversación iniciada")
+        .setDescription(
+          `¡Hola, ${interaction.user.username}!\n\n` +
+          "Ya puedes conversar conmigo escribiendo mensajes normales. " +
+          "No necesitas volver a utilizar `/ia`.\n\n" +
+          "🔒 Cuando termines, escribe **cerrar conversación** para finalizar.\n\n" +
+          "⏱️ La conversación finalizará después de 60 segundos sin actividad."
+        )
+        .setFooter({ text: `${COMMUNITY_NAME} • ${BOT_NAME}` });
+
+      return interaction.reply({
+        content: `<@${interaction.user.id}>`,
+        embeds: [embed],
+        allowedMentions: {
+          users: [interaction.user.id]
+        }
+      });
+    }
+
+    // ======================================
+    // EXPLICAR
+    // ======================================
+
+    if (name === "explicar") {
+      const tema = interaction.options.getString("tema");
+      return replyAI(interaction, `Explícame de manera clara y sencilla: ${tema}`);
+    }
+
+    // ======================================
+    // RESUMIR
+    // ======================================
+
+    if (name === "resumir") {
+      const texto = interaction.options.getString("texto");
+      return replyAI(interaction, `Resume el siguiente texto de forma clara: ${texto}`);
+    }
+
+    // ======================================
+    // IDEAS
+    // ======================================
+
+    if (name === "ideas") {
+      const tema = interaction.options.getString("tema");
+      return replyAI(interaction, `Dame ideas creativas sobre: ${tema}`);
+    }
+
+    // ======================================
+    // CODIGO
+    // ======================================
+
+    if (name === "codigo") {
+      const consulta = interaction.options.getString("consulta");
+      return replyAI(interaction, `Ayúdame con esta consulta de programación: ${consulta}`);
+    }
+
+    // ======================================
+    // TRADUCIR
+    // ======================================
+
+    if (name === "traducir") {
+      const texto = interaction.options.getString("texto");
+      const idioma = interaction.options.getString("idioma");
+
+      return replyAI(
+        interaction,
+        `Traduce al idioma ${idioma} este texto: ${texto}`
+      );
+    }
+
+    // ======================================
+    // MEMORIA
+    // ======================================
+
+    if (name === "memoria") {
+      const key = getHistoryKey(interaction);
+      const history = histories.get(key) || [];
+      const active = sessions.has(key);
+
+      const embed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle("🧠 ADER-AI | MEMORIA")
+        .setDescription(
+          history.length
+            ? `Tengo ${history.length} mensajes de contexto de esta conversación.`
+            : "Todavía no tengo contexto guardado de esta conversación."
+        )
+        .addFields({
+          name: "Estado de sesión",
+          value: active ? "🟢 Activa" : "⚪ Sin sesión activa"
+        })
+        .setFooter({ text: `${COMMUNITY_NAME} • ${BOT_NAME}` });
+
+      return interaction.reply({
+        embeds: [embed],
+        ephemeral: true
+      });
+    }
+
+    // ======================================
+    // OLVIDAR
+    // ======================================
+
+    if (name === "olvidar") {
+      const key = getHistoryKey(interaction);
+
+      closeSession(key);
+
+      return interaction.reply({
+        content: "🧹 Tu contexto ha sido borrado y tu conversación ha sido cerrada.",
+        ephemeral: true
+      });
+    }
+
+    // ======================================
+    // IMAGEN
+    // ======================================
+
+    if (name === "imagen") {
+      await interaction.deferReply();
+
+      const prompt = interaction.options.getString("descripcion");
+
+      if (!process.env.POLLINATIONS_API_KEY) {
+        return interaction.editReply(
+          "❌ Falta configurar POLLINATIONS_API_KEY."
+        );
+      }
+
+      try {
+        const url =
+          "https://gen.pollinations.ai/image/" +
+          encodeURIComponent(prompt) +
+          "?model=flux&width=1024&height=1024&nologo=true";
+
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${process.env.POLLINATIONS_API_KEY}`
+          },
+          signal: AbortSignal.timeout(120000)
+        });
+
+        if (!response.ok) {
+          throw new Error(`Pollinations respondió con código ${response.status}`);
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        const image = new AttachmentBuilder(buffer, {
+          name: "ader-ai-imagen.png"
+        });
+
+        const embed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setTitle("🎨 ADER-AI | IMAGEN GENERADA")
+          .setDescription(`**Descripción:** ${prompt}`)
+          .setImage("attachment://ader-ai-imagen.png")
+          .setFooter({ text: `Creado con ${BOT_NAME} • ${COMMUNITY_NAME}` });
+
+        stats.imagenes++;
+
+        return interaction.editReply({
+          embeds: [embed],
+          files: [image]
+        });
+
+      } catch (error) {
+        console.error("Error generando imagen:", error);
+
+        return interaction.editReply(
+          "❌ No pude generar la imagen. Inténtalo nuevamente."
+        );
+      }
+    }
+
+    // ======================================
+    // SERVIDOR
+    // ======================================
+
+    if (name === "servidor") {
+      const guild = interaction.guild;
+
+      if (!guild) {
+        return interaction.reply({
+          content: "Este comando solo funciona dentro de un servidor.",
+          ephemeral: true
+        });
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle("🌎 ADER-AI | INFORMACIÓN DEL SERVIDOR")
+        .setThumbnail(guild.iconURL())
+        .addFields(
+          { name: "Nombre", value: guild.name, inline: true },
+          { name: "Miembros", value: `${guild.memberCount}`, inline: true },
+          { name: "Canales", value: `${guild.channels.cache.size}`, inline: true }
+        )
+        .setFooter({ text: `${COMMUNITY_NAME} • ${BOT_NAME}` });
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    // ======================================
+    // USUARIO
+    // ======================================
+
+    if (name === "usuario") {
+      const user =
+        interaction.options.getUser("miembro") ||
+        interaction.user;
+
+      const embed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle("👤 ADER-AI | INFORMACIÓN DEL USUARIO")
+        .setThumbnail(user.displayAvatarURL())
+        .addFields(
+          { name: "Usuario", value: user.username, inline: true },
+          { name: "ID", value: user.id, inline: true },
+          {
+            name: "Cuenta creada",
+            value: `<t:${Math.floor(user.createdTimestamp / 1000)}:D>`,
+            inline: true
+          }
+        )
+        .setFooter({ text: `${COMMUNITY_NAME} •
+
+
+
+
+
