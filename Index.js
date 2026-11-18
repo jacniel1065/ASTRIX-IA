@@ -1,4 +1,3 @@
-
 const {
   Client,
   GatewayIntentBits,
@@ -59,12 +58,13 @@ const groq = new Groq({
 });
 
 // ==========================================
-// AUTORIZACIÓN DE SERVIDORES
+// AUTORIZACIÓN DE SERVIDORES Y /DECIR
 // ==========================================
 
 let authorizationData = {
   guildIds: [],
-  delegateId: null
+  delegateId: null,
+  decirUserIds: []
 };
 
 async function loadAuthorizationData() {
@@ -76,7 +76,10 @@ async function loadAuthorizationData() {
       guildIds: Array.isArray(parsed.guildIds)
         ? parsed.guildIds
         : [],
-      delegateId: parsed.delegateId || null
+      delegateId: parsed.delegateId || null,
+      decirUserIds: Array.isArray(parsed.decirUserIds)
+        ? parsed.decirUserIds
+        : []
     };
 
   } catch (error) {
@@ -85,7 +88,6 @@ async function loadAuthorizationData() {
     }
   }
 
-  // ADER WORLD siempre permanece autorizado.
   if (!authorizationData.guildIds.includes(ADER_WORLD_GUILD_ID)) {
     authorizationData.guildIds.push(ADER_WORLD_GUILD_ID);
   }
@@ -123,7 +125,9 @@ function isAdminCommand(name) {
   return [
     "autorizar-servidor",
     "desautorizar-servidor",
-    "delegar-autorizacion"
+    "delegar-autorizacion",
+    "autorizar-decir",
+    "revocar-decir"
   ].includes(name);
 }
 
@@ -231,10 +235,11 @@ async function checkConversationSafety(prompt) {
     .trim();
 
   const directInsultPatterns = [
-    /\b(eres|sos|estas)\s+(un|una)?\s*(puto|puta|idiota|imbecil|estupido|estupida|inutil|basura|asco)\b/,
+    /\b(eres|sos|estas)\s+(un|una)?\s*(puto|puta|idiota|imbecil|estupido|estupida|inutil|basura|asco|mierda)\b/,
     /\b(puto|puta|idiota|imbecil|estupido|estupida|inutil)\s+(bot|ader|ader ai|asco)\b/,
-    /\b(bot|ader ai)\s+(de mierda|inutil|estupido|estupida)\b/,
-    /\b(eres|sos)\s+(una )?mierda\b/
+    /\b(bot|ader ai|ader)\s+(de mierda|inutil|estupido|estupida|basura)\b/,
+    /\b(eres|sos)\s+(una )?mierda\b/,
+    /\b(callate|cierra la boca|vete a la mierda)\b/
   ];
 
   if (directInsultPatterns.some(pattern => pattern.test(normalized))) {
@@ -248,11 +253,18 @@ async function checkConversationSafety(prompt) {
         {
           role: "system",
           content:
-            "Eres el sistema de seguridad de ADER-AI. " +
-            "Analiza si el usuario solicita instrucciones para causar daño, " +
-            "cometer delitos, realizar ataques o perjudicar a alguien. " +
-            "No marques preguntas educativas, preventivas o informativas. " +
-            'Responde exclusivamente JSON: {"type":"dangerous"} o {"type":"none"}.'
+            "Eres el sistema de moderación de ADER-AI. " +
+            "Analiza el mensaje del usuario y clasifícalo. " +
+            "Detecta insultos, humillaciones, lenguaje degradante y ataques verbales " +
+            "dirigidos al bot o a cualquier miembro del servidor. " +
+            "Ten en cuenta expresiones coloquiales, abreviaciones, faltas de ortografía " +
+            "y variantes de palabras ofensivas. " +
+            "No marques palabras ofensivas cuando se mencionen para reportarlas, " +
+            "explicarlas o hablar de ellas de forma educativa. " +
+            "También detecta solicitudes que faciliten causar daño, cometer delitos " +
+            "o perjudicar a otras personas. " +
+            "Responde exclusivamente con uno de estos JSON: " +
+            '{"type":"insult"}, {"type":"dangerous"} o {"type":"none"}.'
         },
         {
           role: "user",
@@ -269,8 +281,11 @@ async function checkConversationSafety(prompt) {
     if (match) {
       const classification = JSON.parse(match[0]);
 
-      if (classification.type === "dangerous") {
-        return "dangerous";
+      if (
+        classification.type === "insult" ||
+        classification.type === "dangerous"
+      ) {
+        return classification.type;
       }
     }
 
@@ -289,11 +304,11 @@ async function checkConversationSafety(prompt) {
 function createSafetyEmbed(type, insultCount = 0) {
   if (type === "insult") {
     const description = insultCount >= 2
-      ? "🚨 Has recibido otra advertencia por utilizar insultos contra ADER-AI.\n\n" +
-        "Por favor, mantén el respeto durante nuestras conversaciones.\n\n" +
+      ? "🚨 Has recibido otra advertencia por utilizar insultos durante la conversación.\n\n" +
+        "Por favor, mantén el respeto hacia los demás miembros y hacia ADER-AI.\n\n" +
         "**Si continúas con este comportamiento, tendrás que contactar a un miembro del Staff de ADER WORLD.**"
-      : "⚠️ Hemos detectado un insulto dirigido a ADER-AI.\n\n" +
-        "Te pedimos mantener un lenguaje respetuoso durante la conversación.\n\n" +
+      : "⚠️ Hemos detectado un insulto durante tu conversación.\n\n" +
+        "Te pedimos mantener un lenguaje respetuoso hacia los demás miembros y hacia ADER-AI.\n\n" +
         "**Si continúas con los insultos, tendrás que contactar a un miembro del Staff de ADER WORLD.**";
 
     return new EmbedBuilder()
@@ -748,6 +763,24 @@ const adminCommands = [
       option.setName("usuario")
         .setDescription("Persona a delegar; omítela para retirar la delegación")
         .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("autorizar-decir")
+    .setDescription("Autoriza a un usuario para utilizar /decir")
+    .addUserOption(option =>
+      option.setName("usuario")
+        .setDescription("Usuario que podrá utilizar /decir")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("revocar-decir")
+    .setDescription("Retira el permiso de utilizar /decir")
+    .addUserOption(option =>
+      option.setName("usuario")
+        .setDescription("Usuario al que se le retirará el permiso")
+        .setRequired(true)
     )
 ].map(command => command.toJSON());
 
@@ -765,13 +798,11 @@ client.once("ready", async () => {
     const rest = new REST({ version: "10" })
       .setToken(process.env.DISCORD_TOKEN);
 
-    // Comandos normales disponibles globalmente.
     await rest.put(
       Routes.applicationCommands(client.user.id),
       { body: normalCommands }
     );
 
-    // Comandos administrativos únicamente en ADER WORLD.
     await rest.put(
       Routes.applicationGuildCommands(
         client.user.id,
@@ -783,7 +814,7 @@ client.once("ready", async () => {
     console.log("✅ Comandos normales registrados.");
     console.log("🔐 Comandos administrativos registrados en ADER WORLD.");
     console.log("🛡️ Sistema de servidores autorizados preparado.");
-    console.log("💾 Autorizaciones guardadas correctamente.");
+    console.log("💾 Autorizaciones y permisos de /decir cargados.");
 
   } catch (error) {
     console.error("Error durante la configuración:", error);
@@ -798,7 +829,6 @@ client.on("messageCreate", async message => {
   if (message.author.bot) return;
   if (!message.guild) return;
 
-  // BLOQUEO DE SERVIDORES NO AUTORIZADOS.
   if (!isAuthorizedGuild(message.guild.id)) {
     return;
   }
@@ -817,7 +847,6 @@ client.on("messageCreate", async message => {
     return;
   }
 
-  // CIERRE MANUAL
   if (/^cerrar\s+conversaci[oó]n[.!?]*$/i.test(content)) {
     closeSession(key);
 
@@ -852,7 +881,6 @@ client.on("interactionCreate", async interaction => {
 
   const name = interaction.commandName;
 
-  // BLOQUEO DE MENSAJES PRIVADOS Y SERVIDORES AJENOS.
   if (!interaction.guildId) {
     return rejectInteraction(
       interaction,
@@ -867,7 +895,6 @@ client.on("interactionCreate", async interaction => {
     );
   }
 
-  // LOS COMANDOS ADMINISTRATIVOS SOLO FUNCIONAN EN ADER WORLD.
   if (
     isAdminCommand(name) &&
     interaction.guildId !== ADER_WORLD_GUILD_ID
@@ -878,7 +905,6 @@ client.on("interactionCreate", async interaction => {
     );
   }
 
-  // PERMISOS PARA COMANDOS ADMINISTRATIVOS.
   if (
     isAdminCommand(name) &&
     !isAuthorizationManager(interaction.user.id)
@@ -966,7 +992,6 @@ client.on("interactionCreate", async interaction => {
 
       await saveAuthorizationData();
 
-      // Cerrar sesiones del servidor retirado.
       for (const [key, session] of sessions.entries()) {
         if (session.guildId === guildId) {
           clearTimeout(session.timer);
@@ -1045,6 +1070,88 @@ client.on("interactionCreate", async interaction => {
 
       return interaction.reply({
         embeds: [embed],
+        ephemeral: true
+      });
+    }
+
+    // ======================================
+    // AUTORIZAR /DECIR
+    // ======================================
+
+    if (name === "autorizar-decir") {
+      if (!isOwner(interaction.user.id)) {
+        return interaction.reply({
+          content: "⛔ Solo el propietario puede autorizar usuarios para /decir.",
+          ephemeral: true
+        });
+      }
+
+      const user = interaction.options.getUser("usuario");
+
+      if (user.bot) {
+        return interaction.reply({
+          content: "❌ No puedes autorizar bots.",
+          ephemeral: true
+        });
+      }
+
+      if (user.id === OWNER_ID) {
+        return interaction.reply({
+          content: "ℹ️ Esa persona ya es el propietario.",
+          ephemeral: true
+        });
+      }
+
+      if (authorizationData.decirUserIds.includes(user.id)) {
+        return interaction.reply({
+          content: "ℹ️ Ese usuario ya tiene permiso para utilizar /decir.",
+          ephemeral: true
+        });
+      }
+
+      authorizationData.decirUserIds.push(user.id);
+      await saveAuthorizationData();
+
+      return interaction.reply({
+        content: `✅ ${user} ahora puede utilizar /decir. El permiso quedó guardado.`,
+        allowedMentions: {
+          users: [user.id]
+        },
+        ephemeral: true
+      });
+    }
+
+    // ======================================
+    // REVOCAR /DECIR
+    // ======================================
+
+    if (name === "revocar-decir") {
+      if (!isOwner(interaction.user.id)) {
+        return interaction.reply({
+          content: "⛔ Solo el propietario puede retirar permisos de /decir.",
+          ephemeral: true
+        });
+      }
+
+      const user = interaction.options.getUser("usuario");
+
+      if (!authorizationData.decirUserIds.includes(user.id)) {
+        return interaction.reply({
+          content: "ℹ️ Ese usuario no tiene permiso para utilizar /decir.",
+          ephemeral: true
+        });
+      }
+
+      authorizationData.decirUserIds =
+        authorizationData.decirUserIds.filter(id => id !== user.id);
+
+      await saveAuthorizationData();
+
+      return interaction.reply({
+        content: `🔒 Se retiró el permiso de /decir a ${user}.`,
+        allowedMentions: {
+          users: [user.id]
+        },
         ephemeral: true
       });
     }
@@ -1148,15 +1255,26 @@ client.on("interactionCreate", async interaction => {
           if (sessions.get(key) !== session) return;
 
           if (result.type === "insult") {
-            return interaction.editReply(
-              createSafetyNoticePayload("insult", result.insultCount)
+            session.insultCount = result.insultCount;
+
+            const notice = createSafetyNoticePayload(
+              "insult",
+              result.insultCount
             );
+
+            notice.content = `<@${interaction.user.id}> ${notice.content}`;
+            notice.allowedMentions.users = [interaction.user.id];
+
+            return interaction.editReply(notice);
           }
 
           if (result.type === "dangerous") {
-            return interaction.editReply(
-              createSafetyNoticePayload("dangerous")
-            );
+            const notice = createSafetyNoticePayload("dangerous");
+
+            notice.content = `<@${interaction.user.id}> ${notice.content}`;
+            notice.allowedMentions.users = [interaction.user.id];
+
+            return interaction.editReply(notice);
           }
 
           if (result.type === "closed") return;
@@ -1164,15 +1282,27 @@ client.on("interactionCreate", async interaction => {
           stats.ia++;
 
           return interaction.editReply({
-            embeds: [createAIEmbed(result.answer)]
+            content: `<@${interaction.user.id}>`,
+            embeds: [createAIEmbed(result.answer)],
+            allowedMentions: {
+              users: [interaction.user.id]
+            }
           });
 
         } catch (error) {
           console.error("Error de IA:", error);
 
-          return interaction.editReply(
-            "❌ ADER-AI tuvo un problema al procesar tu pregunta."
-          );
+          return interaction.editReply({
+            content: `<@${interaction.user.id}>`,
+            embeds: [
+              new EmbedBuilder()
+                .setColor(0xE74C3C)
+                .setDescription("❌ ADER-AI tuvo un problema al procesar tu pregunta.")
+            ],
+            allowedMentions: {
+              users: [interaction.user.id]
+            }
+          });
         }
       }
 
@@ -1188,7 +1318,13 @@ client.on("interactionCreate", async interaction => {
         )
         .setFooter({ text: `${COMMUNITY_NAME} • ${BOT_NAME}` });
 
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        content: `<@${interaction.user.id}>`,
+        embeds: [embed],
+        allowedMentions: {
+          users: [interaction.user.id]
+        }
+      });
     }
 
     // ======================================
@@ -1402,13 +1538,17 @@ client.on("interactionCreate", async interaction => {
     }
 
     // ======================================
-    // DECIR - SOLO PROPIETARIO
+    // DECIR - PROPIETARIO Y USUARIOS AUTORIZADOS
     // ======================================
 
     if (name === "decir") {
-      if (!isOwner(interaction.user.id)) {
+      const hasPermission =
+        isOwner(interaction.user.id) ||
+        authorizationData.decirUserIds.includes(interaction.user.id);
+
+      if (!hasPermission) {
         return interaction.reply({
-          content: "🔒 Este comando está reservado al propietario de ADER-AI.",
+          content: "🔒 No tienes autorización para utilizar este comando.",
           ephemeral: true
         });
       }
