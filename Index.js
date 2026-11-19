@@ -493,45 +493,102 @@ async function askAI(key, prompt) {
 }
 
 // ==========================================
-// MEJORA DE DESCRIPCIONES PARA /IMAGEN
+// MEJORA AVANZADA DE DESCRIPCIONES PARA /IMAGEN
 // ==========================================
 
 async function enhanceImagePrompt(description) {
   try {
-    const completion = await groq.chat.completions.create({
+    // PRIMERA REVISIÓN: organizar la descripción sin perder detalles.
+    const firstReview = await groq.chat.completions.create({
       model: MODEL,
       messages: [
         {
           role: "system",
           content:
-            "Eres un experto en creación de prompts para generación de imágenes. " +
-            "Reescribe la descripción del usuario en un prompt preciso, detallado y claro en inglés. " +
-            "Conserva todos los objetos, personas, animales, colores, posiciones, acciones, " +
-            "fondos, estilos y detalles visuales que haya solicitado. " +
-            "No elimines, sustituyas ni contradigas ningún detalle solicitado. " +
-            "No inventes sujetos u objetos adicionales. " +
-            "Si el usuario solicita texto dentro de la imagen, conserva exactamente ese texto. " +
-            "Puedes mejorar la claridad, composición, iluminación y calidad visual sin cambiar " +
-            "la idea original. " +
-            "No añadas explicaciones, introducciones ni comillas. " +
-            "Devuelve únicamente el prompt final."
+            "You are an expert visual prompt engineer. " +
+            "Convert the user's request into a highly detailed image-generation prompt in English. " +
+            "STRICT RULES: Preserve every requested subject, object, person, animal, " +
+            "quantity, color, position, direction, action, clothing detail, background, " +
+            "style, lighting and relationship between elements. " +
+            "Never remove, replace, reinterpret or contradict a requested detail. " +
+            "Never add subjects, objects, decorations or background elements that the user did not request. " +
+            "Preserve any text requested inside the image EXACTLY, including spelling, " +
+            "capitalization, numbers and punctuation. " +
+            "Respect spatial instructions such as left, right, center, foreground and background. " +
+            "Do not summarize the request. " +
+            "If a detail is ambiguous, keep the user's original wording instead of guessing. " +
+            "Return only the final visual prompt, without explanations."
         },
         {
           role: "user",
           content: description
         }
       ],
-      temperature: 0.2,
-      max_completion_tokens: 700
+      temperature: 0,
+      max_completion_tokens: 1000
     });
 
-    const improved =
-      completion.choices[0]?.message?.content?.trim();
+    const firstPrompt =
+      firstReview.choices[0]?.message?.content?.trim();
 
-    return improved || description;
+    if (!firstPrompt) {
+      return description;
+    }
+
+    // SEGUNDA REVISIÓN: comprobar que no falte ningún detalle.
+    const secondReview = await groq.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a strict image-prompt accuracy auditor. " +
+            "Compare the ORIGINAL USER REQUEST with the DRAFT PROMPT. " +
+            "Check that every requested detail is preserved: subjects, quantities, " +
+            "colors, positions, actions, clothing, objects, background, visual style " +
+            "and exact text. " +
+            "If anything is missing, restore it. " +
+            "If the draft adds something the user did not request, remove it. " +
+            "Do not invent details or change the user's idea. " +
+            "Preserve exact requested text. " +
+            "Return only the corrected final prompt in English. " +
+            "Do not include explanations."
+        },
+        {
+          role: "user",
+          content:
+            "ORIGINAL USER REQUEST:\n" +
+            description +
+            "\n\nDRAFT PROMPT TO REVIEW:\n" +
+            firstPrompt
+        }
+      ],
+      temperature: 0,
+      max_completion_tokens: 1200
+    });
+
+    const verifiedPrompt =
+      secondReview.choices[0]?.message?.content?.trim();
+
+    if (!verifiedPrompt) {
+      return description;
+    }
+
+    // La petición original se conserva como instrucción prioritaria.
+    const finalPrompt =
+      "IMPORTANT: Follow the original user request exactly. " +
+      "Do not omit, change, replace or add any requested visual detail. " +
+      "The original request has the highest priority.\n\n" +
+      "ORIGINAL USER REQUEST:\n" +
+      description +
+      "\n\n" +
+      "DETAILED VISUAL INTERPRETATION:\n" +
+      verifiedPrompt;
+
+    return finalPrompt;
 
   } catch (error) {
-    console.error("Error mejorando descripción de imagen:", error);
+    console.error("Error revisando descripción de imagen:", error);
     return description;
   }
 }
@@ -1553,11 +1610,14 @@ client.on("interactionCreate", async interaction => {
       }
 
       try {
-        // Primero mejora y organiza la descripción con Groq
+        await interaction.editReply(
+          "🎨 ADER-AI está revisando tu descripción para conservar todos los detalles. Esto puede tardar un poco..."
+        );
+
         const improvedPrompt = await enhanceImagePrompt(prompt);
 
         console.log("📝 Descripción original:", prompt);
-        console.log("🎨 Descripción mejorada:", improvedPrompt);
+        console.log("🔍 Descripción revisada:", improvedPrompt);
 
         const url =
           "https://gen.pollinations.ai/image/" +
@@ -1572,7 +1632,9 @@ client.on("interactionCreate", async interaction => {
         });
 
         if (!response.ok) {
-          throw new Error(`Pollinations respondió con código ${response.status}`);
+          throw new Error(
+            `Pollinations respondió con código ${response.status}`
+          );
         }
 
         const buffer = Buffer.from(await response.arrayBuffer());
@@ -1584,13 +1646,18 @@ client.on("interactionCreate", async interaction => {
         const embed = new EmbedBuilder()
           .setColor(0x3498DB)
           .setTitle("🎨 ADER-AI | IMAGEN GENERADA")
-          .setDescription(`**Descripción:** ${prompt}`)
+          .setDescription(
+            `**Tu solicitud:**\n${prompt.slice(0, 3500)}`
+          )
           .setImage("attachment://ader-ai-imagen.png")
-          .setFooter({ text: `Creado con ${BOT_NAME} • ${COMMUNITY_NAME}` });
+          .setFooter({
+            text: `Creado con ${BOT_NAME} • ${COMMUNITY_NAME}`
+          });
 
         stats.imagenes++;
 
         return interaction.editReply({
+          content: "✅ Imagen generada. ¡Espero que se acerque a lo que pediste!",
           embeds: [embed],
           files: [image]
         });
