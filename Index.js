@@ -493,6 +493,50 @@ async function askAI(key, prompt) {
 }
 
 // ==========================================
+// MEJORA DE DESCRIPCIONES PARA /IMAGEN
+// ==========================================
+
+async function enhanceImagePrompt(description) {
+  try {
+    const completion = await groq.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Eres un experto en creación de prompts para generación de imágenes. " +
+            "Reescribe la descripción del usuario en un prompt preciso, detallado y claro en inglés. " +
+            "Conserva todos los objetos, personas, animales, colores, posiciones, acciones, " +
+            "fondos, estilos y detalles visuales que haya solicitado. " +
+            "No elimines, sustituyas ni contradigas ningún detalle solicitado. " +
+            "No inventes sujetos u objetos adicionales. " +
+            "Si el usuario solicita texto dentro de la imagen, conserva exactamente ese texto. " +
+            "Puedes mejorar la claridad, composición, iluminación y calidad visual sin cambiar " +
+            "la idea original. " +
+            "No añadas explicaciones, introducciones ni comillas. " +
+            "Devuelve únicamente el prompt final."
+        },
+        {
+          role: "user",
+          content: description
+        }
+      ],
+      temperature: 0.2,
+      max_completion_tokens: 700
+    });
+
+    const improved =
+      completion.choices[0]?.message?.content?.trim();
+
+    return improved || description;
+
+  } catch (error) {
+    console.error("Error mejorando descripción de imagen:", error);
+    return description;
+  }
+}
+
+// ==========================================
 // PROCESAR MENSAJES CON SEGURIDAD
 // ==========================================
 
@@ -886,7 +930,6 @@ client.once("ready", async () => {
     console.log("🛡️ Sistema de servidores autorizados preparado.");
     console.log("💾 Autorizaciones y permisos de /decir cargados.");
 
-    // INICIAR MENSAJE AUTOMÁTICO CADA 1 HORA
     startWelcomeGuide();
 
   } catch (error) {
@@ -1510,9 +1553,15 @@ client.on("interactionCreate", async interaction => {
       }
 
       try {
+        // Primero mejora y organiza la descripción con Groq
+        const improvedPrompt = await enhanceImagePrompt(prompt);
+
+        console.log("📝 Descripción original:", prompt);
+        console.log("🎨 Descripción mejorada:", improvedPrompt);
+
         const url =
           "https://gen.pollinations.ai/image/" +
-          encodeURIComponent(prompt) +
+          encodeURIComponent(improvedPrompt) +
           "?model=flux&width=1024&height=1024&nologo=true";
 
         const response = await fetch(url, {
